@@ -1,0 +1,14 @@
+# Normalize text to LF in the repo; check out Windows scripts with CRLF.
+* text=auto eol=lf
+
+# Windows launchers need CRLF on checkout
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# POSIX shell scripts must stay LF
+*.sh   text eol=lf
+
+# Binary assets git shouldn't touch
+*.png  binary
+*.ico  binary

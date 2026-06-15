@@ -45,8 +45,29 @@ Teamup  --modifiedSince poll-->  upsert  -->  geocode (cached)  -->  SQLite
   line in `web/app.js` (marked with a comment) if your customer name lives in the
   title or a custom field.
 
-## Quick start (demo — no Teamup account needed)
+## Easiest: double-click to launch
 
+Cross-platform launchers handle the venv, install, demo-vs-live, and browser for you:
+
+- **Windows** — double-click **`launch.bat`**.
+- **Linux (KDE/Dolphin)** — double-click **`Launch Teamup Dispatch.desktop`**.
+- **macOS / any shell** — run **`./launch.sh`**.
+
+First run sets everything up; it opens the map in your browser and runs until you
+close the window. With no `.env` it shows demo data; once `.env` has a key it goes live.
+
+## Quick start (manual, demo — no Teamup account needed)
+
+**Windows (PowerShell):**
+```powershell
+cd teamup-dispatch
+py -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:DEMO=1; .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+# open http://127.0.0.1:8000
+```
+
+**Linux / macOS:**
 ```bash
 cd ~/teamup-dispatch
 python3 -m venv .venv && . .venv/bin/activate
@@ -57,12 +78,9 @@ DEMO=1 uvicorn app.main:app --reload --port 8000
 
 ## Run against your calendar
 
-```bash
-cp .env.example .env
-# edit .env: set TEAMUP_API_KEY and TEAMUP_CALENDAR_ID (and geocoder if you like)
-. .venv/bin/activate
-uvicorn app.main:app --port 8000
-```
+Copy `.env.example` to `.env` and set `TEAMUP_API_KEY` + `TEAMUP_CALENDAR_ID`
+(`config.py` reads `.env` on both Windows and Linux), then start the server
+(`uvicorn app.main:app --port 8000`, or just use the double-click launcher).
 
 - **API key**: request at https://apidocs.teamup.com/ (read-only is enough for the map).
 - **Calendar ID**: the code in your share URL, e.g. `teamup.com/ksABC123` -> `ksABC123`.
