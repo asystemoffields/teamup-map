@@ -1,0 +1,75 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; font: 14px/1.45 system-ui, sans-serif; color: #1c2330; }
+body { display: flex; }
+
+#sidebar {
+  width: 320px; flex: 0 0 320px; height: 100vh; overflow-y: auto;
+  background: #f7f8fa; border-right: 1px solid #e2e6ec; padding: 14px 16px;
+}
+#map { flex: 1; height: 100vh; }
+
+h1 { font-size: 17px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+.control { margin-bottom: 18px; }
+label { display: block; font-weight: 600; font-size: 12px; text-transform: uppercase;
+  letter-spacing: .03em; color: #5b6472; margin-bottom: 6px; }
+select { width: 100%; padding: 6px 8px; border: 1px solid #cfd6df; border-radius: 6px; background: #fff; }
+
+.row-between { display: flex; justify-content: space-between; align-items: baseline; }
+.muted { color: #8a93a2; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.link { background: none; border: none; color: #4363d8; cursor: pointer; font-size: 12px; padding: 0; }
+.hidden { display: none; }
+
+#subcalendars label.sub {
+  display: flex; align-items: center; gap: 8px; font-weight: 500; text-transform: none;
+  letter-spacing: 0; font-size: 13px; margin: 0 0 4px; cursor: pointer; color: #1c2330;
+}
+.swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 12px; }
+
+#event-list, #unmapped-list { list-style: none; margin: 0; padding: 0; }
+#event-list li, #unmapped-list li {
+  padding: 7px 8px; border-radius: 6px; cursor: pointer; border-left: 3px solid transparent;
+}
+#event-list li:hover { background: #eceff3; }
+#event-list .t { font-weight: 600; }
+#event-list .m { color: #6b7280; font-size: 12px; }
+#unmapped-list li { cursor: default; color: #6b7280; font-size: 12.5px; }
+
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #c33; display: inline-block; }
+.dot.on { background: #2ecc71; }
+
+.footer { margin-top: 10px; font-size: 11.5px; }
+
+.leaflet-popup-content { font: 13px/1.4 system-ui, sans-serif; }
+.leaflet-popup-content .pt { font-weight: 700; margin-bottom: 2px; }
+.leaflet-popup-content .pm { color: #555; }
+
+/* --- attention-drawing job markers --- */
+.job-dot { filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45)); }
+
+/* name + time pill anchored to each marker */
+.leaflet-tooltip.job-pill {
+  background: #fff;
+  border: none;
+  border-radius: 999px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+  padding: 3px 11px 3px 9px;
+  font: 600 12px/1 system-ui, sans-serif;
+  color: #1c2330;
+  white-space: nowrap;
+  opacity: 1;
+}
+.leaflet-tooltip.job-pill::before { display: none; } /* drop the default arrow */
+.leaflet-tooltip.job-pill .who { font-weight: 700; }
+.leaflet-tooltip.job-pill .time { color: #6b7280; font-weight: 500; margin-left: 6px; }
+.leaflet-tooltip.job-pill .accent {
+  display: inline-block;
+  width: 9px; height: 9px; border-radius: 50%;
+  margin-right: 7px; vertical-align: middle;
+  animation: pillpulse 1.8s ease-out infinite;
+}
+/* expanding ring in the calendar's own color (set via --c inline) */
+@keyframes pillpulse {
+  0%   { box-shadow: 0 0 0 0 var(--c, #4363d8); }
+  70%  { box-shadow: 0 0 0 7px rgba(0, 0, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}

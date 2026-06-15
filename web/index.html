@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Teamup Dispatch Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="sidebar">
+    <h1>Dispatch <span id="live" class="dot" title="live connection"></span></h1>
+
+    <div class="control">
+      <label for="window">Time window</label>
+      <select id="window">
+        <option value="today">Today</option>
+        <option value="3d">Next 3 days</option>
+        <option value="week" selected>This week</option>
+        <option value="30d">Next 30 days</option>
+        <option value="all">All</option>
+      </select>
+    </div>
+
+    <div class="control">
+      <div class="row-between">
+        <label>Sub-calendars</label>
+        <button id="toggle-all" class="link">all / none</button>
+      </div>
+      <div id="subcalendars"></div>
+    </div>
+
+    <div class="control">
+      <div class="row-between">
+        <label>Events <span id="count" class="muted"></span></label>
+      </div>
+      <ul id="event-list"></ul>
+    </div>
+
+    <div id="unmapped-wrap" class="control hidden">
+      <label>Unmapped <span id="unmapped-count" class="muted"></span></label>
+      <ul id="unmapped-list"></ul>
+    </div>
+
+    <div class="footer muted" id="status"></div>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
