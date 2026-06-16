@@ -16,6 +16,17 @@ app = FastAPI(title="Teamup Dispatch Map")
 WEB = Path(__file__).resolve().parent.parent / "web"
 
 
+@app.middleware("http")
+async def _no_cache_frontend(request: Request, call_next):
+    """Don't let the browser serve a stale app.js/index.html after an update —
+    revalidate the page + static assets every load."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static"):
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     store.conn()  # initialize schema

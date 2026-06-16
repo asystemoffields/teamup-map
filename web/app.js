@@ -380,6 +380,11 @@ document.getElementById("route-toggle").addEventListener("change", (e) => { rout
 document.getElementById("p-add").addEventListener("click", addProspective);
 document.getElementById("p-copy").addEventListener("click", copyAddress);
 document.getElementById("p-clear").addEventListener("click", clearProspective);
+// pressing Enter in any prospective field adds the job (not just clicking the button)
+["p-address", "p-time", "p-name"].forEach((id) =>
+  document.getElementById(id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addProspective(); }
+  }));
 
 (async function init() {
   await loadSubcalendars();
