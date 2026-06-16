@@ -177,6 +177,13 @@ def pending_addresses(limit: int = 20):
     return [(r["loc_norm"], r["loc"]) for r in rows]
 
 
+def get_cached_geocode(norm: str):
+    row = conn().execute(
+        "SELECT lat,lng,status,source FROM geocode_cache WHERE addr=?", (norm,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def save_geocode(norm: str, lat, lng, status: str, source: str) -> None:
     """Cache a geocode result and fan it out to every event with that address."""
     with _lock:

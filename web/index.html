@@ -32,6 +32,36 @@
 
     <div class="control">
       <div class="row-between">
+        <label>Filter by color</label>
+        <button id="colors-all" class="link">all / none</button>
+      </div>
+      <div id="color-filter" class="chips"></div>
+    </div>
+
+    <div class="control">
+      <label class="check">
+        <input type="checkbox" id="route-toggle" /> Route: number &amp; connect by time
+      </label>
+      <div id="route-stats" class="muted"></div>
+    </div>
+
+    <div class="control" id="prospective">
+      <label>Prospective job</label>
+      <input id="p-address" type="text" placeholder="Address to test-fit" autocomplete="off" />
+      <div class="row2">
+        <input id="p-time" type="time" title="optional appointment time" />
+        <input id="p-name" type="text" placeholder="Name (optional)" autocomplete="off" />
+      </div>
+      <div class="btnrow">
+        <button id="p-add" class="btn">Add to route</button>
+        <button id="p-copy" class="btn ghost" title="copy address to paste into Teamup">Copy address</button>
+        <button id="p-clear" class="btn ghost">Clear</button>
+      </div>
+      <div id="p-result" class="muted"></div>
+    </div>
+
+    <div class="control">
+      <div class="row-between">
         <label>Events <span id="count" class="muted"></span></label>
       </div>
       <ul id="event-list"></ul>

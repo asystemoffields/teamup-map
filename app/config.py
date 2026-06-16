@@ -32,6 +32,10 @@ GEOCODER = os.environ.get("GEOCODER", "nominatim").lower()          # nominatim 
 GEOCODER_API_KEY = os.environ.get("GEOCODER_API_KEY", "")
 NOMINATIM_EMAIL = os.environ.get("NOMINATIM_EMAIL", "")              # courtesy contact per OSM policy
 
+# --- Routing (connecting line + distance/duration) ---
+ROUTING = os.environ.get("ROUTING", "osrm").lower()                 # osrm | haversine
+OSRM_URL = os.environ.get("OSRM_URL", "https://router.project-osrm.org")
+
 # --- Polling / backfill ---
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "20"))          # seconds between change polls
 BACKFILL_DAYS_PAST = int(os.environ.get("BACKFILL_DAYS_PAST", "7"))

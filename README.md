@@ -44,6 +44,11 @@ Teamup  --modifiedSince poll-->  upsert  -->  geocode (cached)  -->  SQLite
   "name" comes from the event's `who` field (falls back to title) — change the one
   line in `web/app.js` (marked with a comment) if your customer name lives in the
   title or a custom field.
+- **Routing** (`app/routing.py`): connects the day's stops into a line with distance
+  + drive time. Default backend is **OSRM** (the OSM project's free router — real
+  driving routes), with automatic **haversine straight-line fallback** if OSRM is
+  unreachable. Configurable via `ROUTING` + `OSRM_URL` (point at a self-hosted OSRM
+  or a paid provider without touching the frontend).
 
 ## Easiest: double-click to launch
 
@@ -92,6 +97,25 @@ push, expose the app (e.g. `cloudflared tunnel --url http://localhost:8000`) and
 register the public `/webhook` URL in your Teamup calendar's webhook settings
 (a paid-plan feature). Otherwise drop `POLL_INTERVAL` for snappier polling.
 
+## Route planning & prospective jobs
+
+The sidebar gives a dispatcher three planning tools on top of the live map:
+
+- **Filter by color** — colored chips toggle pins by their calendar color (independent
+  of the sub-calendar checkboxes; handy when several calendars share a color).
+- **Route (number & connect by time)** — sorts the visible mapped jobs by appointment
+  time, numbers the pins `1, 2, 3, …`, and draws the connecting route with total
+  distance + drive time. Set the time window to **Today** for a single day's route.
+- **Prospective job ("test-fit")** — type an address (optionally a time + name) and
+  *Add to route*. It geocodes the address and slots it into the route:
+  - with a time → inserts at that point in the day;
+  - without a time → finds the **least-detour gap** and suggests that slot + an
+    approximate time.
+  The candidate shows as a dashed marker, the route reflows to include it, and the
+  panel reports the added distance. Nothing is written back to Teamup — **Copy address**
+  puts it on your clipboard so you can paste it into Teamup yourself (this fits a
+  read-only API key).
+
 ## Known limitations / next steps
 
 - Time-window filtering compares ISO datetime strings; events spanning calendars
@@ -108,3 +132,13 @@ register the public `/webhook` URL in your Teamup calendar's webhook settings
 - Pills are always-on (permanent). With many jobs packed into a small area they
   can overlap; if that bites, switch the tooltip to `permanent: false` (show on
   hover) or gate it on a zoom threshold in `web/app.js`.
+- Routing uses the **public OSRM demo server** by default — fine for a handful of
+  stops, but it's a shared/best-effort service (no SLA, fair-use only). For
+  production, self-host OSRM or point `OSRM_URL` at a paid provider. The route is a
+  fixed time-order (not a travelling-salesman optimization); "best slot" for a
+  prospective job is a least-detour *insertion*, computed with straight-line
+  distance for speed.
+- The route view assumes a single day's stops; spanning a multi-day window numbers
+  every job in the range into one sequence. Use the **Today** window for daily routes.
+- **Copy address** uses the modern clipboard API on a secure origin (localhost is
+  fine) with a legacy fallback for plain-HTTP LAN access.

@@ -4,11 +4,12 @@ import datetime as dt
 import json
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import config, demo, poller, store
+from app import config, demo, geocode, poller, routing, store
 from app.events_bus import publish, subscribe, unsubscribe
 
 app = FastAPI(title="Teamup Dispatch Map")
@@ -46,6 +47,33 @@ async def api_events(request: Request):
     sub_ids = [int(x) for x in subs.split(",") if x] if subs else None
     rows = store.query_events(qp.get("from"), qp.get("to"), sub_ids)
     return {"events": rows, "server_time": dt.datetime.now().isoformat()}
+
+
+@app.get("/api/geocode")
+async def api_geocode(request: Request):
+    """Geocode a prospective address (cache-aware). Used by the 'add a
+    prospective job' panel; results are cached like any other address."""
+    address = (request.query_params.get("address") or "").strip()
+    if not address:
+        return {"status": "empty", "lat": None, "lng": None}
+    norm = store.norm_addr(address)
+    cached = store.get_cached_geocode(norm)
+    if cached and cached["status"] == "ok":
+        return {"status": "ok", "lat": cached["lat"], "lng": cached["lng"], "source": "cache"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        lat, lng, status = await geocode.geocode(address, client)
+    store.save_geocode(norm, lat, lng, status, config.GEOCODER)
+    return {"status": status, "lat": lat, "lng": lng, "source": config.GEOCODER}
+
+
+@app.post("/api/route")
+async def api_route(request: Request):
+    """Connect an ordered list of [lat,lng] stops into a line + distance/duration
+    (real driving via OSRM, straight-line haversine fallback)."""
+    body = await request.json()
+    points = body.get("points", [])
+    async with httpx.AsyncClient(timeout=30) as client:
+        return await routing.route_through(points, client)
 
 
 @app.post("/webhook")
