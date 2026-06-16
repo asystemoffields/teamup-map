@@ -33,6 +33,23 @@ def _straight(pts):
     }
 
 
+# Routes are deterministic for a given (backend, ordered stops), so cache them.
+# This dedupes identical routes across concurrent users and across re-renders,
+# which keeps load off the shared OSRM server. Bounded, FIFO-evicted.
+_route_cache: dict = {}
+_ROUTE_CACHE_MAX = 256
+
+
+def _cache_key(pts):
+    return (config.ROUTING, tuple((round(la, 5), round(ln, 5)) for la, ln in pts))
+
+
+def _cache_put(key, result):
+    _route_cache[key] = result
+    if len(_route_cache) > _ROUTE_CACHE_MAX:
+        _route_cache.pop(next(iter(_route_cache)))
+
+
 async def route_through(points, client):
     """points: ordered [[lat, lng], ...]. Returns {source, distance_m,
     duration_s, geometry:[[lat,lng],...]}. geometry follows roads when OSRM is
@@ -41,6 +58,10 @@ async def route_through(points, client):
     if len(pts) < 2:
         return {"source": "none", "distance_m": 0.0, "duration_s": None,
                 "geometry": [[la, ln] for la, ln in pts]}
+
+    key = _cache_key(pts)
+    if key in _route_cache:
+        return _route_cache[key]
 
     if config.ROUTING == "osrm":
         try:
@@ -52,14 +73,21 @@ async def route_through(points, client):
             if data.get("code") == "Ok" and data.get("routes"):
                 route = data["routes"][0]
                 geom = [[c[1], c[0]] for c in route["geometry"]["coordinates"]]  # lon,lat -> lat,lng
-                return {
+                result = {
                     "source": "osrm",
                     "distance_m": route.get("distance"),
                     "duration_s": route.get("duration"),
                     "geometry": geom,
                 }
+                _cache_put(key, result)  # cache real OSRM results only
+                return result
             print("[routing] OSRM returned", data.get("code"), "- falling back to haversine")
         except Exception as exc:  # noqa: BLE001
             print("[routing] OSRM error, falling back to haversine:", exc)
+        # OSRM unavailable: return haversine but DON'T cache, so it retries OSRM next time
+        return _straight(pts)
 
-    return _straight(pts)
+    # ROUTING=haversine: deterministic, safe to cache
+    result = _straight(pts)
+    _cache_put(key, result)
+    return result

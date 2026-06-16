@@ -22,7 +22,8 @@ def conn() -> sqlite3.Connection:
     if _conn is None:
         _conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
         _conn.row_factory = sqlite3.Row
-        _conn.execute("PRAGMA journal_mode=WAL")
+        _conn.execute("PRAGMA journal_mode=WAL")     # readers don't block the writer
+        _conn.execute("PRAGMA busy_timeout=5000")    # wait, don't error, on transient locks
         _init(_conn)
     return _conn
 

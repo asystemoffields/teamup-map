@@ -350,13 +350,23 @@ function clearProspective() {
 }
 
 // ---- live updates ----
+let refreshTimer = null;
+function scheduleRefresh() {
+  if (refreshTimer) return; // coalesce bursts of refresh events into one refetch
+  // jitter so N browsers don't all hit the server at the same instant
+  const delay = 150 + Math.random() * 600;
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    loadSubcalendars().then(loadEvents);
+  }, delay);
+}
 function connectStream() {
   const es = new EventSource("/api/stream");
   const dot = document.getElementById("live");
   es.onopen = () => dot.classList.add("on");
   es.onerror = () => dot.classList.remove("on");
   es.onmessage = (ev) => {
-    try { if (JSON.parse(ev.data).type === "refresh") loadSubcalendars().then(loadEvents); } catch (_) {}
+    try { if (JSON.parse(ev.data).type === "refresh") scheduleRefresh(); } catch (_) {}
   };
 }
 

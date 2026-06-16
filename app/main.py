@@ -27,8 +27,15 @@ async def _no_cache_frontend(request: Request, call_next):
     return resp
 
 
+# one shared HTTP client for the geocode/route endpoints (avoids per-request
+# connection churn when several users hit them at once)
+_http: "httpx.AsyncClient | None" = None
+
+
 @app.on_event("startup")
 async def _startup() -> None:
+    global _http
+    _http = httpx.AsyncClient(timeout=30)
     store.conn()  # initialize schema
     if config.DEMO:
         demo.load()
@@ -39,6 +46,12 @@ async def _startup() -> None:
             print("[startup] WARNING: TEAMUP_API_KEY / TEAMUP_CALENDAR_ID not set. "
                   "Set them in .env, or run with DEMO=1.")
         asyncio.create_task(poller.run_poller())
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    if _http is not None:
+        await _http.aclose()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -71,8 +84,7 @@ async def api_geocode(request: Request):
     cached = store.get_cached_geocode(norm)
     if cached and cached["status"] == "ok":
         return {"status": "ok", "lat": cached["lat"], "lng": cached["lng"], "source": "cache"}
-    async with httpx.AsyncClient(timeout=30) as client:
-        lat, lng, status = await geocode.geocode(address, client)
+    lat, lng, status = await geocode.geocode(address, _http)
     store.save_geocode(norm, lat, lng, status, config.GEOCODER)
     return {"status": status, "lat": lat, "lng": lng, "source": config.GEOCODER}
 
@@ -83,8 +95,7 @@ async def api_route(request: Request):
     (real driving via OSRM, straight-line haversine fallback)."""
     body = await request.json()
     points = body.get("points", [])
-    async with httpx.AsyncClient(timeout=30) as client:
-        return await routing.route_through(points, client)
+    return await routing.route_through(points, _http)
 
 
 @app.post("/webhook")

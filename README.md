@@ -116,6 +116,41 @@ The sidebar gives a dispatcher three planning tools on top of the live map:
   puts it on your clipboard so you can paste it into Teamup yourself (this fits a
   read-only API key).
 
+## Running it for your team (2–10 people)
+
+**Model: each person runs their own local copy.** Everyone double-clicks the
+launcher on their own machine and reads the same Teamup calendar independently —
+no shared server, no network setup. Simplest to operate.
+
+What each person needs once:
+- this repo + Python 3, and a `.env` with `TEAMUP_API_KEY` + `TEAMUP_CALENDAR_ID`
+  (a read-only key is enough). The launcher sets up the venv + deps on first run.
+
+How independent instances behave:
+- Each has its own poller, geocode cache, and route cache — fully self-contained
+  and self-consistent. Opening **several browser tabs** against your own instance
+  is totally fine; the per-instance hardening below keeps that smooth.
+- If everyone shares one read-only key, that's N independent pollers hitting Teamup
+  (~one request per `POLL_INTERVAL` each). Fine for ~10; raise `POLL_INTERVAL` if you
+  ever see Teamup throttling.
+- Each instance geocodes/routes independently against the free Nominatim/OSRM
+  servers. For heavy use, self-host OSRM (`OSRM_URL`) or use a paid geocoder
+  (`GEOCODER=google`). Novel addresses geocode at ~1/sec (Nominatim policy); cached
+  ones are instant.
+
+Per-instance concurrency hardening (also helps multiple tabs): route cache,
+debounced + jittered refresh, bounded SSE queues, shared HTTP client, SQLite
+`busy_timeout`.
+
+- **Never run an instance with `--workers >1`.** The poller and live-update bus are
+  in-process; multiple workers would duplicate the poller (racing the `modifiedSince`
+  token) and split SSE clients so some tabs stop getting live updates. The launchers
+  already run single-process.
+- **No auth.** Each copy serves only `localhost`, so it's private to that machine.
+  If you ever switch to **one shared server** (everyone browses to one box), bind it
+  to your LAN (`--host 0.0.0.0`), gate it behind your network / a reverse proxy, and
+  move the pub/sub to Redis to scale past one process.
+
 ## Known limitations / next steps
 
 - Time-window filtering compares ISO datetime strings; events spanning calendars
