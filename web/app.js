@@ -15,11 +15,12 @@ let subIndex = {};              // id -> position (palette fallback)
 let selected = new Set();       // selected sub-calendar ids
 let subsInitialized = false;
 let colorEnabled = new Set();   // enabled hex colors (color filter)
-let colorsInitialized = false;
+let knownColors = new Set();    // colors we've seen (so new ones default to visible)
 let routeMode = false;
 let prospective = null;         // {address,name,time,lat,lng,status}
 let lastEvents = [];            // last server-filtered events (re-render without refetch)
 let firstFit = true;
+let routeReq = 0;               // token to ignore stale /api/route responses
 
 const PALETTE = ["#e6194b","#3cb44b","#4363d8","#f58231","#911eb4","#46f0f0",
                  "#f032e6","#bcf60c","#fabebe","#008080","#9a6324","#800000"];
@@ -53,13 +54,21 @@ function havM(a, b) {
 function stamp() { document.getElementById("status").textContent = "updated " + new Date().toLocaleTimeString(); }
 
 // ---- time window ----
+// local wall-clock ISO (NO timezone Z). Event start/end are wall-clock strings,
+// so the window bounds must be wall-clock too — using toISOString() (UTC) here
+// shifted the whole window by the local offset and hid/leaked morning jobs.
+function localISO(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T` +
+         `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
 function windowRange() {
   const sel = document.getElementById("window").value;
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (sel === "all") return { from: null, to: null };
   const days = { today: 1, "3d": 3, week: 7, "30d": 30 }[sel] || 7;
-  return { from: start.toISOString(), to: new Date(start.getTime() + days * 864e5).toISOString() };
+  return { from: localISO(start), to: localISO(new Date(start.getTime() + days * 864e5)) };
 }
 
 // ---- markers ----
@@ -109,7 +118,9 @@ function buildColorFilter() {
   const box = document.getElementById("color-filter");
   box.innerHTML = "";
   const colors = distinctColors();
-  if (!colorsInitialized) { colors.forEach((c) => colorEnabled.add(c)); colorsInitialized = true; }
+  // any colour we haven't seen before defaults to visible (mirrors how a new
+  // sub-calendar auto-selects); a user-disabled colour stays disabled on refresh
+  colors.forEach((c) => { if (!knownColors.has(c)) { knownColors.add(c); colorEnabled.add(c); } });
   colors.forEach((c) => {
     const chip = document.createElement("button");
     chip.className = "chip" + (colorEnabled.has(c) ? "" : " off");
@@ -126,6 +137,8 @@ function buildColorFilter() {
 
 // ---- events ----
 async function loadEvents() {
+  // all sub-calendars deselected = show nothing (not "no filter = everything")
+  if (subsInitialized && selected.size === 0) { render([]); return; }
   const { from, to } = windowRange();
   const params = new URLSearchParams();
   if (from) params.set("from", from);
@@ -172,6 +185,7 @@ function computeInsert(jobs, p) {
 
 function render(events) {
   lastEvents = events;
+  routeReq++; // invalidate any in-flight route draw from a previous render
   markerLayer.clearLayers();
   routeLayer.clearLayers();
   const list = document.getElementById("event-list");
@@ -185,7 +199,7 @@ function render(events) {
     const sid = e.subcalendar_id || (e.subcalendar_ids && e.subcalendar_ids[0]);
     const color = colorFor(sid);
     if (e.lat != null && e.lng != null) {
-      if (colorEnabled.size && !colorEnabled.has(color)) return; // color filter
+      if (!colorEnabled.has(color)) return; // color filter (empty set = show nothing)
       jobs.push({ kind: "job", e, name: e.who || e.title || "", title: e.title, who: e.who,
         time: e.start_dt, lat: e.lat, lng: e.lng, color, location: e.location });
     } else {
@@ -259,7 +273,6 @@ function render(events) {
 }
 
 // ---- route line ----
-let routeReq = 0;
 async function drawRoute(points) {
   const id = ++routeReq;
   document.getElementById("route-stats").textContent = "routing…";

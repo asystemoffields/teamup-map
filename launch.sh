@@ -18,6 +18,26 @@ echo "  Teamup Dispatch Map"
 echo "  $DIR"
 echo "================================================"
 
+# --- 0. (re)generate the Linux double-click shortcut for THIS machine's path ---
+# .desktop Exec= can't be relative, so write it from $DIR on every run (this is
+# why the file isn't committed — each clone generates its own).
+if command -v xdg-open >/dev/null 2>&1; then
+  cat > "$DIR/Launch Teamup Dispatch.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Teamup Dispatch Map
+GenericName=Dispatch Map
+Comment=Launch the local Teamup dispatch map in your browser
+Exec=$DIR/launch.sh
+Path=$DIR
+Icon=$DIR/icon.svg
+Terminal=true
+Categories=Utility;
+EOF
+  chmod +x "$DIR/Launch Teamup Dispatch.desktop" 2>/dev/null
+fi
+
 # --- 1. first-run bootstrap: venv + dependencies ---
 if [ ! -d .venv ]; then
   echo "[setup] first run: creating virtualenv + installing dependencies..."
@@ -46,6 +66,7 @@ fi
 MODE_ENV=""
 if [ -f .env ] && grep -qE '^[[:space:]]*TEAMUP_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' .env; then
   echo "[mode] LIVE - using credentials from .env"
+  MODE_ENV="DEMO=0"   # force live even if .env also sets DEMO=1 (banner matches behavior)
 else
   echo "[mode] DEMO - no Teamup key in .env, showing sample data"
   MODE_ENV="DEMO=1 DB_PATH=demo.db"   # keep demo data out of the live DB
@@ -71,7 +92,9 @@ for _ in $(seq 1 40); do
   if (echo > "/dev/tcp/127.0.0.1/${PORT}") >/dev/null 2>&1; then break; fi
   sleep 0.5
 done
-xdg-open "$URL" >/dev/null 2>&1 || echo "Open this in your browser: ${URL}"
+if command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1
+elif command -v open >/dev/null 2>&1; then open "$URL" >/dev/null 2>&1   # macOS
+else echo "Open this in your browser: ${URL}"; fi
 
 echo
 echo ">>> Map is live at ${URL}"

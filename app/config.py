@@ -11,7 +11,9 @@ def _load_dotenv(path: str = ".env") -> None:
     p = Path(path)
     if not p.exists():
         return
-    for line in p.read_text().splitlines():
+    # utf-8-sig tolerates a BOM (Windows Notepad), which would otherwise corrupt
+    # the first key (e.g. ﻿TEAMUP_API_KEY)
+    for line in p.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -41,9 +43,9 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "20"))          # seconds be
 BACKFILL_DAYS_PAST = int(os.environ.get("BACKFILL_DAYS_PAST", "7"))
 BACKFILL_DAYS_FUTURE = int(os.environ.get("BACKFILL_DAYS_FUTURE", "60"))
 
-# --- Server / storage ---
-HOST = os.environ.get("HOST", "127.0.0.1")
-PORT = int(os.environ.get("PORT", "8000"))
+# --- Storage ---
+# (Host is localhost-only by design; port is read from the shell env by the
+#  launchers, e.g. `PORT=9000 ./launch.sh`, not from here.)
 DB_PATH = os.environ.get("DB_PATH", "teamup_dispatch.db")
 
 # --- Demo mode: bundled sample data, no Teamup creds needed ---

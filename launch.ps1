@@ -39,13 +39,21 @@ try {
         $env:DB_PATH = "demo.db"   # keep demo data out of the live DB
     } else {
         Write-Host "[mode] LIVE - using credentials from .env"
+        $env:DEMO = "0"   # force live even if .env also sets DEMO=1
     }
 
     $port = if ($env:PORT) { $env:PORT } else { "8000" }
     $url = "http://127.0.0.1:$port"
 
-    # open the browser a few seconds after the server starts
-    Start-Job -ScriptBlock { param($u) Start-Sleep -Seconds 4; Start-Process $u } -ArgumentList $url | Out-Null
+    # open the browser once the server is actually listening (poll the port,
+    # up to ~20s) instead of a blind sleep that can race a slow first start
+    Start-Job -ScriptBlock {
+        param($u, $p)
+        for ($i = 0; $i -lt 40; $i++) {
+            try { (New-Object Net.Sockets.TcpClient).Connect("127.0.0.1", [int]$p); Start-Process $u; break }
+            catch { Start-Sleep -Milliseconds 500 }
+        }
+    } -ArgumentList $url, $port | Out-Null
 
     Write-Host ""
     Write-Host ">>> Map will open at $url"

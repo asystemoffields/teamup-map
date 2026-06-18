@@ -35,6 +35,36 @@ async def _geocode_pending(geo_client: httpx.AsyncClient, budget: int = 20) -> i
     return len(pending)
 
 
+async def _sync_once(client: TeamupClient, geo_client: httpx.AsyncClient) -> None:
+    """One sync pass. With no token (first run OR recovery after a failed
+    backfill) it backfills a window; otherwise it pulls changes since the token.
+    The token is captured BEFORE the fetch and stored only AFTER success, so:
+      - a transient failure leaves token=None and the NEXT pass retries the
+        backfill instead of wedging on modifiedSince=None, and
+      - edits made mid-backfill aren't skipped by the next poll window."""
+    token = store.get_meta("modified_since")
+    if not token:
+        ts = int(time.time())  # capture before the fetch
+        today = dt.date.today()
+        start = (today - dt.timedelta(days=config.BACKFILL_DAYS_PAST)).isoformat()
+        end = (today + dt.timedelta(days=config.BACKFILL_DAYS_FUTURE)).isoformat()
+        evs = await client.events(start, end)
+        for e in evs:
+            store.upsert_event(e)
+        store.set_meta("modified_since", ts)
+        print(f"[poller] backfilled {len(evs)} events ({start}..{end})")
+    else:
+        evs, new_ts = await client.events_modified_since(token)
+        for e in evs:
+            store.upsert_event(e)
+        if new_ts:
+            store.set_meta("modified_since", int(new_ts))
+
+    geocoded = await _geocode_pending(geo_client)
+    if evs or geocoded:
+        publish({"type": "refresh", "changed": len(evs)})
+
+
 async def run_poller() -> None:
     global _wake
     _wake = asyncio.Event()
@@ -48,44 +78,23 @@ async def run_poller() -> None:
         except Exception as exc:  # noqa: BLE001
             print("[poller] subcalendars error:", exc)
 
-        # backfill on first run
-        if not store.get_meta("modified_since"):
-            today = dt.date.today()
-            start = (today - dt.timedelta(days=config.BACKFILL_DAYS_PAST)).isoformat()
-            end = (today + dt.timedelta(days=config.BACKFILL_DAYS_FUTURE)).isoformat()
-            try:
-                evs = await client.events(start, end)
-                for e in evs:
-                    store.upsert_event(e)
-                store.set_meta("modified_since", int(time.time()))
-                print(f"[poller] backfilled {len(evs)} events ({start}..{end})")
-            except Exception as exc:  # noqa: BLE001
-                print("[poller] backfill error:", exc)
-
-        await _geocode_pending(geo_client)
+        # initial sync (backfill); a failure here self-heals on the next pass
+        try:
+            await _sync_once(client, geo_client)
+        except Exception as exc:  # noqa: BLE001
+            print("[poller] initial sync error (will retry):", exc)
         publish({"type": "refresh"})
 
-        # main loop
         while True:
             try:
                 await asyncio.wait_for(_wake.wait(), timeout=config.POLL_INTERVAL)
             except asyncio.TimeoutError:
                 pass
             _wake.clear()
-
-            token = store.get_meta("modified_since")
             try:
-                evs, new_ts = await client.events_modified_since(token)
-                for e in evs:
-                    store.upsert_event(e)
-                if new_ts:
-                    store.set_meta("modified_since", int(new_ts))
-                geocoded = await _geocode_pending(geo_client)
-                if evs or geocoded:
-                    publish({"type": "refresh", "changed": len(evs)})
-                    print(f"[poller] {len(evs)} changed, {geocoded} geocoded")
+                await _sync_once(client, geo_client)
             except Exception as exc:  # noqa: BLE001
-                print("[poller] poll error:", exc)
+                print("[poller] poll error (will retry):", exc)
     finally:
         await client.aclose()
         await geo_client.aclose()

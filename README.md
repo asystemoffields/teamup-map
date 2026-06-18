@@ -55,7 +55,10 @@ Teamup  --modifiedSince poll-->  upsert  -->  geocode (cached)  -->  SQLite
 Cross-platform launchers handle the venv, install, demo-vs-live, and browser for you:
 
 - **Windows** — double-click **`launch.bat`**.
-- **Linux (KDE/Dolphin)** — double-click **`Launch Teamup Dispatch.desktop`**.
+- **Linux (KDE/Dolphin)** — run **`./launch.sh`** once from a terminal; it generates
+  **`Launch Teamup Dispatch.desktop`** (with the correct path for *your* machine),
+  which you can double-click thereafter. (The `.desktop` isn't committed because its
+  `Exec=` path is absolute and per-machine.)
 - **macOS / any shell** — run **`./launch.sh`**.
 
 First run sets everything up; it opens the map in your browser and runs until you
@@ -68,7 +71,7 @@ close the window. With no `.env` it shows demo data; once `.env` has a key it go
 cd teamup-dispatch
 py -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
-$env:DEMO=1; .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+$env:DEMO=1; $env:DB_PATH="demo.db"; .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
 # open http://127.0.0.1:8000
 ```
 
@@ -77,8 +80,9 @@ $env:DEMO=1; .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
 cd ~/teamup-dispatch
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-DEMO=1 uvicorn app.main:app --reload --port 8000
+DEMO=1 DB_PATH=demo.db uvicorn app.main:app --reload --port 8000
 # open http://127.0.0.1:8000  -> sample jobs across SF on the map
+# (DB_PATH=demo.db keeps the sample data out of your real teamup_dispatch.db)
 ```
 
 ## Run against your calendar
@@ -153,8 +157,9 @@ debounced + jittered refresh, bounded SSE queues, shared HTTP client, SQLite
 
 ## Known limitations / next steps
 
-- Time-window filtering compares ISO datetime strings; events spanning calendars
-  in very different UTC offsets could be off by an edge case. Fine for typical use.
+- Time-window filtering compares wall-clock-local times as strings (the bounds are
+  sent as local wall-clock, matching the event times). Correct for a single timezone;
+  a calendar mixing very different UTC offsets could still be off at a DST/zone edge.
 - Deletions rely on `modifiedSince` returning a `deleted`/`delete_dt` marker —
   verify the exact shape against your calendar and adjust `store.upsert_event`.
 - No auth on the dashboard itself — put it behind your own access control before

@@ -92,7 +92,10 @@ def set_meta(key: str, value) -> None:
 
 
 def get_meta(key: str, default=None):
-    row = conn().execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    # reads take the lock too: the single shared connection must never be touched
+    # concurrently (safe today on one event loop; future-proofs a threadpool).
+    with _lock:
+        row = conn().execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
     return row["value"] if row else default
 
 
@@ -113,7 +116,8 @@ def upsert_subcalendars(subs) -> None:
 
 
 def get_subcalendars():
-    return [dict(r) for r in conn().execute("SELECT * FROM subcalendars ORDER BY name").fetchall()]
+    with _lock:
+        return [dict(r) for r in conn().execute("SELECT * FROM subcalendars ORDER BY name").fetchall()]
 
 
 # ---------------- events ----------------
@@ -168,20 +172,24 @@ def upsert_event(e) -> None:
 
 
 def pending_addresses(limit: int = 20):
-    """Distinct un-geocoded addresses still attached to live events."""
-    rows = conn().execute(
-        "SELECT loc_norm, MAX(location) AS loc FROM events "
-        "WHERE geo_status='pending' AND deleted=0 AND loc_norm<>'' "
-        "GROUP BY loc_norm LIMIT ?",
-        (limit,),
-    ).fetchall()
+    """Distinct addresses still needing a geocode. Includes 'error' rows so a
+    TRANSIENT failure (timeout/429) is retried next cycle rather than sticking
+    forever; 'notfound' stays terminal."""
+    with _lock:
+        rows = conn().execute(
+            "SELECT loc_norm, MAX(location) AS loc FROM events "
+            "WHERE geo_status IN ('pending','error') AND deleted=0 AND loc_norm<>'' "
+            "GROUP BY loc_norm LIMIT ?",
+            (limit,),
+        ).fetchall()
     return [(r["loc_norm"], r["loc"]) for r in rows]
 
 
 def get_cached_geocode(norm: str):
-    row = conn().execute(
-        "SELECT lat,lng,status,source FROM geocode_cache WHERE addr=?", (norm,)
-    ).fetchone()
+    with _lock:
+        row = conn().execute(
+            "SELECT lat,lng,status,source FROM geocode_cache WHERE addr=?", (norm,)
+        ).fetchone()
     return dict(row) if row else None
 
 
@@ -203,7 +211,6 @@ def save_geocode(norm: str, lat, lng, status: str, source: str) -> None:
 
 
 def query_events(dt_from=None, dt_to=None, subcalendar_ids=None):
-    c = conn()
     q = "SELECT * FROM events WHERE deleted=0"
     args = []
     if dt_from:
@@ -212,7 +219,8 @@ def query_events(dt_from=None, dt_to=None, subcalendar_ids=None):
     if dt_to:
         q += " AND start_dt <= ?"
         args.append(dt_to)
-    rows = [dict(r) for r in c.execute(q, args).fetchall()]
+    with _lock:
+        rows = [dict(r) for r in conn().execute(q, args).fetchall()]
     for r in rows:
         r["subcalendar_ids"] = json.loads(r["subcalendar_ids"] or "[]")
     if subcalendar_ids:

@@ -5,3 +5,5 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
+# generated per-machine by launch.sh (absolute Exec= path can't be committed)
+Launch Teamup Dispatch.desktop

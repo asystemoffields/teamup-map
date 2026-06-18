@@ -2,6 +2,7 @@
 import asyncio
 import datetime as dt
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -12,28 +13,15 @@ from fastapi.staticfiles import StaticFiles
 from app import config, demo, geocode, poller, routing, store
 from app.events_bus import publish, subscribe, unsubscribe
 
-app = FastAPI(title="Teamup Dispatch Map")
 WEB = Path(__file__).resolve().parent.parent / "web"
-
-
-@app.middleware("http")
-async def _no_cache_frontend(request: Request, call_next):
-    """Don't let the browser serve a stale app.js/index.html after an update —
-    revalidate the page + static assets every load."""
-    resp = await call_next(request)
-    path = request.url.path
-    if path == "/" or path.startswith("/static"):
-        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
-    return resp
-
 
 # one shared HTTP client for the geocode/route endpoints (avoids per-request
 # connection churn when several users hit them at once)
 _http: "httpx.AsyncClient | None" = None
 
 
-@app.on_event("startup")
-async def _startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global _http
     _http = httpx.AsyncClient(timeout=30)
     store.conn()  # initialize schema
@@ -46,12 +34,23 @@ async def _startup() -> None:
             print("[startup] WARNING: TEAMUP_API_KEY / TEAMUP_CALENDAR_ID not set. "
                   "Set them in .env, or run with DEMO=1.")
         asyncio.create_task(poller.run_poller())
-
-
-@app.on_event("shutdown")
-async def _shutdown() -> None:
+    yield
     if _http is not None:
         await _http.aclose()
+
+
+app = FastAPI(title="Teamup Dispatch Map", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def _no_cache_frontend(request: Request, call_next):
+    """Don't let the browser serve a stale app.js/index.html after an update —
+    revalidate the page + static assets every load."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static"):
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
 
 
 @app.get("/", response_class=HTMLResponse)
