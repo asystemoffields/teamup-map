@@ -16,6 +16,10 @@ let selected = new Set();       // selected sub-calendar ids
 let subsInitialized = false;
 let colorEnabled = new Set();   // enabled hex colors (color filter)
 let knownColors = new Set();    // colors we've seen (so new ones default to visible)
+let crewEnabled = new Set();    // enabled crew names (crew filter)
+let knownCrews = new Set();     // crews we've seen (so new ones default to visible)
+let crewColors = {};            // crew name -> hex (used when coloring pins by crew)
+let colorMode = "status";       // "status" (sub-calendar color) | "crew"
 let routeMode = false;
 let prospective = null;         // {address,name,time,lat,lng,status}
 let lastEvents = [];            // last server-filtered events (re-render without refetch)
@@ -32,6 +36,23 @@ function colorFor(id) {
   // else falls back to the palette (closes any attribute-injection via color)
   if (c && /^#[0-9a-fA-F]{3,8}$/.test(c)) return c;
   return PALETTE[(subIndex[id] || 0) % PALETTE.length];
+}
+
+// crew = the text before the first " - ", " / ", or " : " in the title
+// (e.g. "Will - Durling / TC / Roofing" -> "Will", "Will: Coates" -> "Will").
+// Empty when no delimiter (most time-off/admin entries) -> treated as uncrewed.
+function crewOf(title) {
+  const m = (title || "").match(/^\s*([^/\-:]+?)\s*[-/:]/);
+  return m ? m[1].replace(/\s+/g, " ").trim() : "";
+}
+function crewColorOf(crew) {
+  if (!crew) return "#9aa3af";  // uncrewed -> neutral grey
+  if (!(crew in crewColors)) crewColors[crew] = PALETTE[Object.keys(crewColors).length % PALETTE.length];
+  return crewColors[crew];
+}
+// the color a pin/pill should use, honoring the "Color pins by" selector
+function pinColor(e, sid) {
+  return colorMode === "crew" ? crewColorOf(crewOf(e.title)) : colorFor(sid);
 }
 
 // ---- small helpers ----
@@ -69,7 +90,14 @@ function windowRange() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (sel === "all") return { from: null, to: null };
-  const days = { today: 1, "3d": 3, week: 7, "30d": 30 }[sel] || 7;
+  if (sel === "date") {
+    // a single chosen calendar day (00:00 of that day -> 00:00 the next day)
+    const v = document.getElementById("date-pick").value;
+    if (!v) return { from: null, to: null };
+    const d = new Date(v + "T00:00:00");
+    return { from: localISO(d), to: localISO(new Date(d.getTime() + 864e5)) };
+  }
+  const days = { today: 1, week: 7, "30d": 30 }[sel] || 7;
   return { from: localISO(start), to: localISO(new Date(start.getTime() + days * 864e5)) };
 }
 
@@ -120,7 +148,43 @@ async function loadSubcalendars() {
 }
 
 function distinctColors() {
+  // the colors actually on the map right now, so "filter by color" always
+  // matches what you see (status colors, or crew colors in crew mode)
+  if (colorMode === "crew") return [...new Set([...knownCrews].map((c) => crewColorOf(c)))];
   return [...new Set(Object.keys(subcalendars).map((id) => colorFor(id)))];
+}
+
+// ---- crew filter (parsed from titles; mapped jobs only) ----
+function crewsInEvents(events) {
+  const s = new Set();
+  events.forEach((e) => {
+    if (e.lat != null && e.lng != null) { const c = crewOf(e.title); if (c) s.add(c); }
+  });
+  return [...s].sort((a, b) => a.localeCompare(b));
+}
+
+function buildCrewFilter(events) {
+  const crews = crewsInEvents(events);
+  // a newly-seen crew defaults to visible (mirrors sub-calendar / color filters)
+  crews.forEach((c) => {
+    if (!knownCrews.has(c)) { knownCrews.add(c); crewEnabled.add(c); }
+    crewColorOf(c); // assign a stable color now (alpha order) for crew-color mode
+  });
+  const box = document.getElementById("crew-filter");
+  box.innerHTML = "";
+  if (!crews.length) { box.innerHTML = '<span class="muted">no crews detected</span>'; return; }
+  crews.forEach((c) => {
+    const label = document.createElement("label");
+    label.className = "sub";
+    const sw = colorMode === "crew"
+      ? `<span class="swatch" style="background:${crewColorOf(c)}"></span>` : "";
+    label.innerHTML = `<input type="checkbox" ${crewEnabled.has(c) ? "checked" : ""}>` + sw + esc(c);
+    label.querySelector("input").addEventListener("change", (e) => {
+      e.target.checked ? crewEnabled.add(c) : crewEnabled.delete(c);
+      rerender();
+    });
+    box.appendChild(label);
+  });
 }
 
 function buildColorFilter() {
@@ -162,7 +226,9 @@ async function loadEvents() {
     document.getElementById("status").textContent = "can't reach server — retrying…";
     return;
   }
-  render(data.events || []);
+  const events = data.events || [];
+  buildCrewFilter(events);   // refresh crew chips from the current data
+  render(events);
 }
 
 function rerender() { render(lastEvents); }
@@ -213,8 +279,10 @@ function render(events) {
   let unmappedCount = 0;
   events.forEach((e) => {
     const sid = e.subcalendar_id || (e.subcalendar_ids && e.subcalendar_ids[0]);
-    const color = colorFor(sid);
+    const color = pinColor(e, sid);
     if (e.lat != null && e.lng != null) {
+      const crew = crewOf(e.title);
+      if (crew && !crewEnabled.has(crew)) return; // crew filter (uncrewed jobs always show)
       if (!colorEnabled.has(color)) return; // color filter (empty set = show nothing)
       jobs.push({ kind: "job", e, name: e.who || e.title || "", title: e.title, who: e.who,
         time: e.start_dt, lat: e.lat, lng: e.lng, color, location: e.location });
@@ -400,7 +468,27 @@ function connectStream() {
 }
 
 // ---- wiring ----
-document.getElementById("window").addEventListener("change", loadEvents);
+document.getElementById("window").addEventListener("change", (e) => {
+  const dp = document.getElementById("date-pick");
+  const isDate = e.target.value === "date";
+  dp.classList.toggle("hidden", !isDate);
+  if (isDate && !dp.value) dp.value = localISO(new Date()).slice(0, 10); // prefill today
+  loadEvents();
+});
+document.getElementById("date-pick").addEventListener("change", loadEvents);
+document.getElementById("colorby").addEventListener("change", (e) => {
+  colorMode = e.target.value;
+  buildColorFilter();          // chips now reflect the active color dimension
+  buildCrewFilter(lastEvents); // show/hide crew swatches
+  rerender();
+});
+document.getElementById("crew-all").addEventListener("click", () => {
+  const crews = crewsInEvents(lastEvents);
+  const allOn = crews.every((c) => crewEnabled.has(c));
+  crews.forEach((c) => (allOn ? crewEnabled.delete(c) : crewEnabled.add(c)));
+  buildCrewFilter(lastEvents);
+  rerender();
+});
 document.getElementById("toggle-all").addEventListener("click", () => {
   const ids = Object.keys(subcalendars).map(Number);
   const allOn = ids.every((id) => selected.has(id));

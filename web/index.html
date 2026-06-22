@@ -17,11 +17,12 @@
       <label for="window">Time window</label>
       <select id="window">
         <option value="today">Today</option>
-        <option value="3d">Next 3 days</option>
+        <option value="date">Pick a date…</option>
         <option value="week" selected>This week</option>
         <option value="30d">Next 30 days</option>
         <option value="all">All</option>
       </select>
+      <input type="date" id="date-pick" class="hidden" />
     </div>
 
     <div class="control">
@@ -30,6 +31,22 @@
         <button id="toggle-all" class="link">all / none</button>
       </div>
       <div id="subcalendars"></div>
+    </div>
+
+    <div class="control">
+      <div class="row-between">
+        <label>Filter by crew</label>
+        <button id="crew-all" class="link">all / none</button>
+      </div>
+      <div id="crew-filter"></div>
+    </div>
+
+    <div class="control">
+      <label for="colorby">Color pins by</label>
+      <select id="colorby">
+        <option value="status" selected>Status (sub-calendar)</option>
+        <option value="crew">Crew</option>
+      </select>
     </div>
 
     <div class="control">
