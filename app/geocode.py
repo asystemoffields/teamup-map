@@ -1,6 +1,9 @@
 """Pluggable geocoder: turns an address string into (lat, lng, status).
 
-Providers: nominatim (default, free, OSM), google, mapbox.
+Providers: nominatim (free, OSM), census (free, US-only, no key), google, mapbox.
+`GEOCODER` may be a comma-separated FALLBACK CHAIN tried left-to-right until one
+returns a hit, e.g. `census,nominatim` (best for US addresses: the US Census
+geocoder has far better rural-residential coverage than OSM, with OSM as backup).
 Nominatim is rate-limited to <=1 req/s per OSM usage policy; results are
 cached by the store so we only ever call the provider once per address.
 """
@@ -25,17 +28,33 @@ async def _rate_limit(min_interval: float) -> None:
         _last_call = time.monotonic()
 
 
+_PROVIDERS = {
+    "google": lambda a, c: _google(a, c),
+    "mapbox": lambda a, c: _mapbox(a, c),
+    "census": lambda a, c: _census(a, c),
+    "nominatim": lambda a, c: _nominatim(a, c),
+}
+
+
 async def geocode(address: str, client: httpx.AsyncClient):
-    provider = config.GEOCODER
-    try:
-        if provider == "google":
-            return await _google(address, client)
-        if provider == "mapbox":
-            return await _mapbox(address, client)
-        return await _nominatim(address, client)
-    except Exception as exc:  # noqa: BLE001 - any failure -> mark error, retry later
-        print(f"[geocode] {provider} error for {address!r}: {exc}")
-        return (None, None, "error")
+    """Try each provider in the GEOCODER chain until one returns a hit.
+    Returns 'error' (transient, retried later) if every provider failed and at
+    least one failed transiently; 'notfound' (terminal) only if all said notfound."""
+    chain = [p.strip() for p in config.GEOCODER.split(",") if p.strip()] or ["nominatim"]
+    saw_error = False
+    for provider in chain:
+        fn = _PROVIDERS.get(provider, _PROVIDERS["nominatim"])
+        try:
+            lat, lng, status = await fn(address, client)
+        except Exception as exc:  # noqa: BLE001 - any failure -> try next, retry later
+            print(f"[geocode] {provider} error for {address!r}: {exc}")
+            saw_error = True
+            continue
+        if status == "ok":
+            return (lat, lng, "ok")
+        if status == "error":
+            saw_error = True
+    return (None, None, "error" if saw_error else "notfound")
 
 
 async def _nominatim(address, client):
@@ -78,3 +97,34 @@ async def _mapbox(address, client):
         return (None, None, "notfound")
     lng, lat = feats[0]["center"]
     return (lat, lng, "ok")
+
+
+async def _census(address, client):
+    """US Census Bureau geocoder: free, no key, US-only, strong on rural
+    residential addresses. Returns coordinates as {x: lng, y: lat}.
+
+    The endpoint intermittently returns 200 + an EMPTY match list under bursty
+    load (not a real 'no such address'), so we retry empties/transient errors a
+    few times before concluding. A true miss after all attempts -> 'notfound';
+    a transient HTTP failure is re-raised so geocode() marks it retryable."""
+    last_exc = None
+    for attempt in range(4):
+        await _rate_limit(0.5)
+        try:
+            r = await client.get(
+                "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress",
+                params={"address": address, "benchmark": "Public_AR_Current", "format": "json"},
+            )
+            r.raise_for_status()
+            matches = r.json().get("result", {}).get("addressMatches", [])
+        except Exception as exc:  # noqa: BLE001 - transient; back off and retry
+            last_exc = exc
+            await asyncio.sleep(0.8 * (attempt + 1))
+            continue
+        if matches:
+            coord = matches[0]["coordinates"]  # x = longitude, y = latitude
+            return (coord["y"], coord["x"], "ok")
+        await asyncio.sleep(0.8 * (attempt + 1))  # false-empty? give it another go
+    if last_exc is not None:
+        raise last_exc  # all attempts errored -> let geocode() mark 'error' (retried later)
+    return (None, None, "notfound")  # consistently empty -> genuine miss

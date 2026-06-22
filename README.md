@@ -30,8 +30,9 @@ Teamup  --modifiedSince poll-->  upsert  -->  geocode (cached)  -->  SQLite
   token from each response's `timestamp`. Reliable with no public URL.
 - **Webhook** (`POST /webhook`): optional. Teamup change notifications just wake
   the poll loop early so updates feel instant. Polling already catches everything.
-- **Geocoder** (`app/geocode.py`): pluggable — `nominatim` (free, default),
-  `google`, or `mapbox`. Results cached in SQLite.
+- **Geocoder** (`app/geocode.py`): pluggable — `census` (free, no key, US-only,
+  strong on rural addresses), `nominatim` (free OSM), `google`, or `mapbox`.
+  `GEOCODER` can be a fallback chain (e.g. `census,nominatim`). Results cached in SQLite.
 - **UI** (`web/`): Leaflet + OpenStreetMap tiles (no token). Big, shadowed pins
   in each sub-calendar's **real Teamup color**, each tagged with a **pill showing
   the customer name + appointment time** (accent dot pulses in the calendar color).
@@ -167,8 +168,10 @@ debounced + jittered refresh, bounded SSE queues, shared HTTP client, SQLite
 - Recurring events: `modifiedSince` returns expanded instances within the polled
   window; very long-horizon recurrences past the backfill window need a wider
   `BACKFILL_DAYS_FUTURE` or a periodic forward re-backfill.
-- Geocoder accuracy: Nominatim is great for full addresses, weaker on vague
-  "business name only" locations — switch to `google` for those at volume.
+- Geocoder accuracy: Nominatim is weak on **rural US residential** addresses
+  (it missed >half of a real Northern-Michigan calendar). For US calendars use
+  `GEOCODER=census,nominatim` — the free US Census geocoder resolves rural
+  addresses Nominatim can't, with OSM as backup; `google` is best at volume.
 - Pills are always-on (permanent). With many jobs packed into a small area they
   can overlap; if that bites, switch the tooltip to `permanent: false` (show on
   hover) or gate it on a zoom threshold in `web/app.js`.
