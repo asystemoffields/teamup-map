@@ -2,13 +2,21 @@
 import asyncio
 import datetime as dt
 import json
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+
+# fields returned by /api/events kept to what the map renders — keeps PII the UI
+# never shows (notes) and internal columns (loc_norm/version/update_dt) off the wire
+_EVENT_FIELDS = (
+    "id", "subcalendar_id", "subcalendar_ids", "title", "who", "location",
+    "start_dt", "end_dt", "all_day", "lat", "lng", "geo_status",
+)
 
 from app import config, demo, geocode, poller, routing, store
 from app.events_bus import publish, subscribe, unsubscribe
@@ -25,6 +33,7 @@ async def lifespan(app: FastAPI):
     global _http
     _http = httpx.AsyncClient(timeout=30)
     store.conn()  # initialize schema
+    poller_task = None
     if config.DEMO:
         demo.load()
         publish({"type": "refresh"})
@@ -33,13 +42,46 @@ async def lifespan(app: FastAPI):
         if not (config.API_KEY and config.CALENDAR_ID):
             print("[startup] WARNING: TEAMUP_API_KEY / TEAMUP_CALENDAR_ID not set. "
                   "Set them in .env, or run with DEMO=1.")
-        asyncio.create_task(poller.run_poller())
+        # keep the handle so we can cancel it cleanly on shutdown (and so a crash
+        # in poller setup isn't a silently-discarded task)
+        poller_task = asyncio.create_task(poller.run_poller())
     yield
+    if poller_task is not None:
+        poller_task.cancel()
     if _http is not None:
         await _http.aclose()
 
 
 app = FastAPI(title="Teamup Dispatch Map", lifespan=lifespan)
+
+_LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1", ""}
+
+
+@app.middleware("http")
+async def _gate_nonloopback(request: Request, call_next):
+    """Fail closed for anything that isn't localhost. The dashboard has no login
+    by design (it's a per-machine localhost tool), so if it's ever bound to a
+    network address it must NOT silently serve customer PII: non-loopback callers
+    are refused unless DASHBOARD_TOKEN is set and presented (?token=, the
+    x-dispatch-token header, or the dt cookie). Behind a trusted local reverse
+    proxy / Cloudflare Access, the proxy is the loopback client and does the auth."""
+    client = request.client.host if request.client else ""
+    if client not in _LOOPBACK:
+        if not config.DASHBOARD_TOKEN:
+            return JSONResponse(
+                {"error": "This dashboard is localhost-only. Set DASHBOARD_TOKEN "
+                          "to allow authenticated network access."}, status_code=403)
+        supplied = (request.query_params.get("token")
+                    or request.cookies.get("dt")
+                    or request.headers.get("x-dispatch-token") or "")
+        if not secrets.compare_digest(supplied, config.DASHBOARD_TOKEN):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        resp = await call_next(request)
+        if request.query_params.get("token"):  # remember it so deep links work once
+            resp.set_cookie("dt", config.DASHBOARD_TOKEN, httponly=True,
+                            samesite="lax", max_age=60 * 60 * 24 * 30)
+        return resp
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -69,7 +111,8 @@ async def api_events(request: Request):
     subs = qp.get("subcalendars")
     sub_ids = [int(x) for x in subs.split(",") if x] if subs else None
     rows = store.query_events(qp.get("from"), qp.get("to"), sub_ids)
-    return {"events": rows, "server_time": dt.datetime.now().isoformat()}
+    slim = [{k: r.get(k) for k in _EVENT_FIELDS} for r in rows]
+    return {"events": slim, "server_time": dt.datetime.now().isoformat()}
 
 
 @app.get("/api/geocode")
@@ -100,7 +143,12 @@ async def api_route(request: Request):
 @app.post("/webhook")
 async def webhook(request: Request):
     """Teamup change notifications land here and wake the poll loop early.
-    (Polling already catches everything; this just makes it feel instant.)"""
+    (Polling already catches everything; this just makes it feel instant.)
+    Gated by WEBHOOK_SECRET if set, so a stray caller can't spam the poll loop
+    into burning the Teamup quota — register the URL as .../webhook?t=<secret>."""
+    if config.WEBHOOK_SECRET and not secrets.compare_digest(
+            request.query_params.get("t") or "", config.WEBHOOK_SECRET):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
     poller.request_poll()
     return {"ok": True}
 

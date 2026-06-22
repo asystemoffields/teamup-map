@@ -29,6 +29,17 @@ _load_dotenv()
 API_KEY = os.environ.get("TEAMUP_API_KEY", "")
 CALENDAR_ID = os.environ.get("TEAMUP_CALENDAR_ID", "")
 
+# --- Access control (only matters when bound to a non-loopback address) ---
+# When the server is reachable from anything other than localhost, requests must
+# present this token (?token=, an `x-dispatch-token` header, or the `dt` cookie).
+# Empty => non-loopback requests are refused outright (fail closed), so binding
+# to 0.0.0.0 without a token can never silently expose customer PII.
+DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN", "")
+# Optional shared secret for the /webhook accelerator: register the webhook URL
+# as .../webhook?t=<secret>. Empty => webhook accepts any caller (it can only
+# wake the poll loop; it never trusts the request body).
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
+
 # --- Geocoder ---
 GEOCODER = os.environ.get("GEOCODER", "nominatim").lower()          # nominatim | google | mapbox
 GEOCODER_API_KEY = os.environ.get("GEOCODER_API_KEY", "")

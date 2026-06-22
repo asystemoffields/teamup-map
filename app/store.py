@@ -4,6 +4,7 @@ The geocode cache is the load-bearing piece: Teamup only gives us a text
 address per event (no coordinates), so we geocode each distinct address once
 and reuse the result for every event that shares it.
 """
+import datetime as dt
 import json
 import re
 import sqlite3
@@ -227,3 +228,23 @@ def query_events(dt_from=None, dt_to=None, subcalendar_ids=None):
         sset = set(subcalendar_ids)
         rows = [r for r in rows if sset & set(r["subcalendar_ids"])]
     return rows
+
+
+def prune(retain_days: int = 90) -> int:
+    """Drop tombstoned events and ones that ended well in the past. The
+    incremental modifiedSince poll upserts every changed event regardless of
+    date (far-past edits, deletions, far-future), so without this the table
+    grows without bound on a long-running box. Deleted rows never legitimately
+    reappear, and old finished jobs fall outside any map window, so this is safe.
+    The geocode_cache is intentionally NOT pruned (it's the load-bearing cache
+    and distinct real addresses are naturally bounded)."""
+    cutoff = (dt.date.today() - dt.timedelta(days=retain_days)).isoformat()
+    with _lock:
+        c = conn()
+        cur = c.execute(
+            "DELETE FROM events WHERE deleted=1 "
+            "OR (end_dt IS NOT NULL AND end_dt <> '' AND end_dt < ?)",
+            (cutoff,),
+        )
+        c.commit()
+        return cur.rowcount

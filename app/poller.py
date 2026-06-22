@@ -20,11 +20,25 @@ from app.teamup import TeamupClient
 
 _wake: asyncio.Event | None = None
 
+# run housekeeping (prune dead rows, refresh sub-calendars) every N poll cycles
+_MAINT_EVERY = 180  # ~1h at the default 20s POLL_INTERVAL
+
 
 def request_poll() -> None:
     """Wake the poll loop now (called by the webhook handler)."""
     if _wake is not None:
         _wake.set()
+
+
+def _safe_err(exc: Exception) -> str:
+    """A log-safe one-line summary of an exception WITHOUT the request URL.
+    httpx formats its messages as '... for url <URL>', and our Teamup/geocoder
+    URLs carry the API key in the query string — so never log the raw exception."""
+    req = getattr(exc, "request", None)
+    if req is not None:
+        code = getattr(getattr(exc, "response", None), "status_code", "")
+        return f"{type(exc).__name__} {code} {req.method} {req.url.host}{req.url.path}".strip()
+    return f"{type(exc).__name__}: {exc}"
 
 
 async def _geocode_pending(geo_client: httpx.AsyncClient, budget: int = 20) -> int:
@@ -54,7 +68,18 @@ async def _sync_once(client: TeamupClient, geo_client: httpx.AsyncClient) -> Non
         store.set_meta("modified_since", ts)
         print(f"[poller] backfilled {len(evs)} events ({start}..{end})")
     else:
-        evs, new_ts = await client.events_modified_since(token)
+        try:
+            evs, new_ts = await client.events_modified_since(token)
+        except httpx.HTTPStatusError as exc:
+            # Teamup rejects a modifiedSince older than 30 days with HTTP 400
+            # ("out_of_bounds_modified_since"). After downtime >30d the stored
+            # token is stale and would 400 forever without ever re-backfilling.
+            # Clear it so the next pass takes the (token is None) backfill path.
+            if exc.response is not None and exc.response.status_code == 400:
+                store.set_meta("modified_since", "")
+                print("[poller] modifiedSince stale (>30d) — cleared; will re-backfill")
+                return
+            raise
         for e in evs:
             store.upsert_event(e)
         if new_ts:
@@ -76,15 +101,16 @@ async def run_poller() -> None:
         try:
             store.upsert_subcalendars(await client.subcalendars())
         except Exception as exc:  # noqa: BLE001
-            print("[poller] subcalendars error:", exc)
+            print("[poller] subcalendars error:", _safe_err(exc))
 
         # initial sync (backfill); a failure here self-heals on the next pass
         try:
             await _sync_once(client, geo_client)
         except Exception as exc:  # noqa: BLE001
-            print("[poller] initial sync error (will retry):", exc)
+            print("[poller] initial sync error (will retry):", _safe_err(exc))
         publish({"type": "refresh"})
 
+        cycles = 0
         while True:
             try:
                 await asyncio.wait_for(_wake.wait(), timeout=config.POLL_INTERVAL)
@@ -94,7 +120,19 @@ async def run_poller() -> None:
             try:
                 await _sync_once(client, geo_client)
             except Exception as exc:  # noqa: BLE001
-                print("[poller] poll error (will retry):", exc)
+                print("[poller] poll error (will retry):", _safe_err(exc))
+
+            # periodic housekeeping: prune dead/old rows so the table can't grow
+            # without bound, and pick up renamed/added sub-calendars
+            cycles += 1
+            if cycles % _MAINT_EVERY == 0:
+                try:
+                    removed = store.prune()
+                    if removed:
+                        print(f"[poller] pruned {removed} stale/deleted events")
+                    store.upsert_subcalendars(await client.subcalendars())
+                except Exception as exc:  # noqa: BLE001
+                    print("[poller] maintenance error (will retry):", _safe_err(exc))
     finally:
         await client.aclose()
         await geo_client.aclose()

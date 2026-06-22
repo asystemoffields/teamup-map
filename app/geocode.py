@@ -47,7 +47,9 @@ async def geocode(address: str, client: httpx.AsyncClient):
         try:
             lat, lng, status = await fn(address, client)
         except Exception as exc:  # noqa: BLE001 - any failure -> try next, retry later
-            print(f"[geocode] {provider} error for {address!r}: {exc}")
+            # don't log the raw address (PII) or the exception (its message
+            # carries the request URL, which for google/mapbox holds the API key)
+            print(f"[geocode] {provider} failed ({type(exc).__name__})")
             saw_error = True
             continue
         if status == "ok":
@@ -124,7 +126,8 @@ async def _census(address, client):
         if matches:
             coord = matches[0]["coordinates"]  # x = longitude, y = latitude
             return (coord["y"], coord["x"], "ok")
-        await asyncio.sleep(0.8 * (attempt + 1))  # false-empty? give it another go
+        if attempt < 3:
+            await asyncio.sleep(0.8 * (attempt + 1))  # false-empty? give it another go
     if last_exc is not None:
         raise last_exc  # all attempts errored -> let geocode() mark 'error' (retried later)
     return (None, None, "notfound")  # consistently empty -> genuine miss

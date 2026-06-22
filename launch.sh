@@ -10,6 +10,11 @@
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR" || exit 1
 
+# keep secrets/PII owner-only: new files (venv, the SQLite DB + WAL) -> 0600,
+# and tighten an already-loose .env if one exists
+umask 077
+[ -f .env ] && chmod 600 .env 2>/dev/null
+
 PORT="${PORT:-8000}"
 URL="http://127.0.0.1:${PORT}"
 

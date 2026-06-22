@@ -28,7 +28,9 @@ const PROSPECTIVE_COLOR = "#e8590c";
 
 function colorFor(id) {
   const c = subcalendars[id] && subcalendars[id].color;
-  if (c && /^#/.test(c)) return c;
+  // strict hex only — the value is interpolated into inline style="…"; anything
+  // else falls back to the palette (closes any attribute-injection via color)
+  if (c && /^#[0-9a-fA-F]{3,8}$/.test(c)) return c;
   return PALETTE[(subIndex[id] || 0) % PALETTE.length];
 }
 
@@ -84,8 +86,15 @@ function jobIcon(color, number, prospectiveFlag) {
 
 // ---- sub-calendars (filter + legend) + color filter ----
 async function loadSubcalendars() {
-  const r = await fetch("/api/subcalendars");
-  const data = await r.json();
+  let data;
+  try {
+    const r = await fetch("/api/subcalendars");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    data = await r.json();
+  } catch (e) {
+    document.getElementById("status").textContent = "can't reach server — retrying…";
+    return;
+  }
   const box = document.getElementById("subcalendars");
   box.innerHTML = "";
   data.subcalendars.forEach((s, idx) => {
@@ -98,7 +107,7 @@ async function loadSubcalendars() {
     label.className = "sub";
     label.innerHTML =
       `<input type="checkbox" data-id="${s.id}" ${selected.has(s.id) ? "checked" : ""}>` +
-      `<span class="swatch" style="background:${color}"></span>${s.name || "(unnamed)"}`;
+      `<span class="swatch" style="background:${color}"></span>${esc(s.name || "(unnamed)")}`;
     label.querySelector("input").addEventListener("change", (e) => {
       const id = +e.target.dataset.id;
       e.target.checked ? selected.add(id) : selected.delete(id);
@@ -144,8 +153,15 @@ async function loadEvents() {
   if (from) params.set("from", from);
   if (to) params.set("to", to);
   if (selected.size) params.set("subcalendars", [...selected].join(","));
-  const r = await fetch("/api/events?" + params.toString());
-  const data = await r.json();
+  let data;
+  try {
+    const r = await fetch("/api/events?" + params.toString());
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    data = await r.json();
+  } catch (e) {
+    document.getElementById("status").textContent = "can't reach server — retrying…";
+    return;
+  }
   render(data.events || []);
 }
 

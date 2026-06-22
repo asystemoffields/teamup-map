@@ -151,10 +151,16 @@ debounced + jittered refresh, bounded SSE queues, shared HTTP client, SQLite
   in-process; multiple workers would duplicate the poller (racing the `modifiedSince`
   token) and split SSE clients so some tabs stop getting live updates. The launchers
   already run single-process.
-- **No auth.** Each copy serves only `localhost`, so it's private to that machine.
-  If you ever switch to **one shared server** (everyone browses to one box), bind it
-  to your LAN (`--host 0.0.0.0`), gate it behind your network / a reverse proxy, and
-  move the pub/sub to Redis to scale past one process.
+- **No login by design.** Each copy serves only `localhost`, so it's private to
+  that machine. The server **fails closed** if exposed to a network: bound to a
+  non-loopback address, any non-localhost request is refused (HTTP 403) unless
+  `DASHBOARD_TOKEN` is set, so binding `--host 0.0.0.0` can never silently serve
+  customer data. To run **one shared box** (everyone browses to it): set
+  `DASHBOARD_TOKEN`, bind `--host 0.0.0.0`, and reach it once as
+  `http://<box-ip>:8000/?token=<DASHBOARD_TOKEN>` (it drops a cookie thereafter).
+  Better still, put it behind a reverse proxy / Cloudflare Access (the proxy is
+  then the loopback client and does the auth). Move the pub/sub to Redis only if
+  you scale past one process.
 
 ## Known limitations / next steps
 
