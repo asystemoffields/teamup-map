@@ -84,11 +84,28 @@ async def _gate_nonloopback(request: Request, call_next):
     return await call_next(request)
 
 
+# Content-Security-Policy: locks script execution to our own origin + the pinned
+# Leaflet CDN (which is also SRI-checked in index.html), so even a stored-XSS
+# string can't run inline. 'unsafe-inline' is needed only for style (the map sets
+# inline style attrs for marker colors); img allows OSM tiles + Leaflet assets.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com; "
+    "connect-src 'self'; font-src 'self'; "
+    "object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+)
+
+
 @app.middleware("http")
-async def _no_cache_frontend(request: Request, call_next):
-    """Don't let the browser serve a stale app.js/index.html after an update —
-    revalidate the page + static assets every load."""
+async def _security_and_cache_headers(request: Request, call_next):
+    """CSP on every response (defense-in-depth backstop for XSS), plus no-cache
+    on the page/static assets so a stale app.js/index.html isn't served after an
+    update."""
     resp = await call_next(request)
+    resp.headers["Content-Security-Policy"] = _CSP
+    resp.headers["X-Content-Type-Options"] = "nosniff"
     path = request.url.path
     if path == "/" or path.startswith("/static"):
         resp.headers["Cache-Control"] = "no-cache, must-revalidate"
