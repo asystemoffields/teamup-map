@@ -1,0 +1,17 @@
+# Teamup Dispatch Map — credentials
+# ----------------------------------
+# 1. Rename this file to exactly:   teamup-config.txt
+# 2. Keep it in the SAME folder as TeamupDispatch.exe
+# 3. Paste the company values after the = signs (no spaces, no quotes)
+#
+# Find these in Teamup:
+#   TEAMUP_API_KEY      — an API key (read-only is enough for the map)
+#   TEAMUP_CALENDAR_ID  — the code in the calendar's share link,
+#                         e.g. teamup.com/ksABC123  ->  ksABC123
+
+TEAMUP_API_KEY=
+TEAMUP_CALENDAR_ID=
+
+# Geocoder: turns each job's address into a map pin.
+# "census" is best for rural US addresses; OSM ("nominatim") is the backup.
+GEOCODER=census,nominatim

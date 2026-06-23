@@ -7,3 +7,10 @@ __pycache__/
 *.db-shm
 # generated per-machine by launch.sh (absolute Exec= path can't be committed)
 Launch Teamup Dispatch.desktop
+
+# PyInstaller build outputs (the Windows .exe is built in CI, not committed)
+build/
+dist/
+*.spec
+# the recipient's filled-in credentials, if ever assembled locally
+teamup-config.txt

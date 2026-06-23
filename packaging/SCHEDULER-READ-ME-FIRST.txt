@@ -1,0 +1,55 @@
+==================================================
+  Teamup Dispatch Map  —  READ ME FIRST
+==================================================
+
+What this is:
+  A live map of every job on the company calendar — each appointment is a pin,
+  colored by calendar, labeled with the customer name and time. It updates by
+  itself as the calendar changes. Use it to see the whole day at once and to
+  plan driving routes. It runs on YOUR computer; nothing to install.
+
+
+--------------------------------------------------
+  STARTING IT
+--------------------------------------------------
+  1. Keep ALL the files in this folder together. Don't move the .exe out by
+     itself — it needs the teamup-config.txt file next to it.
+
+  2. Double-click:   TeamupDispatch.exe
+
+  3. The first time, Windows may show a blue box: "Windows protected your PC".
+     This is normal for an in-house app (it just isn't signed).
+        -> Click "More info"
+        -> Click "Run anyway"
+
+  4. A black window opens — LEAVE IT OPEN — and your web browser opens the map
+     automatically. (If the browser doesn't open, type this into it:
+        http://127.0.0.1:8000 )
+
+
+--------------------------------------------------
+  STOPPING IT
+--------------------------------------------------
+  Close the black window. That shuts the map down. (Closing just the browser
+  tab leaves it running — close the black window to fully stop it.)
+
+
+--------------------------------------------------
+  USING THE MAP
+--------------------------------------------------
+  - Check / uncheck calendars on the left to show or hide their pins.
+  - Set the time window (try "Today") and click "Route" to number the day's
+    stops in time order and draw the drive with total distance + time.
+  - "Add a prospective job": type an address to see where a possible new
+    appointment fits into the day's route (nothing is written back to Teamup —
+    use "Copy address" to paste it into Teamup yourself).
+
+
+--------------------------------------------------
+  IF THE MAP IS EMPTY OR SHOWS SAN FRANCISCO "DEMO" JOBS
+--------------------------------------------------
+  That means it can't find the company credentials. Check that the file
+  named  teamup-config.txt  is in this same folder and has the key filled in.
+  If you're not sure, ask Alex.
+
+==================================================

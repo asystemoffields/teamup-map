@@ -3,6 +3,7 @@ import asyncio
 import datetime as dt
 import json
 import secrets
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -21,7 +22,11 @@ _EVENT_FIELDS = (
 from app import config, demo, geocode, poller, routing, store
 from app.events_bus import publish, subscribe, unsubscribe
 
-WEB = Path(__file__).resolve().parent.parent / "web"
+# Static assets live in web/. In a normal checkout that's next to app/; when
+# frozen by PyInstaller (the double-click .exe) the bundle is unpacked under
+# sys._MEIPASS, so resolve from there if present.
+_BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+WEB = _BASE / "web"
 
 # one shared HTTP client for the geocode/route endpoints (avoids per-request
 # connection churn when several users hit them at once)

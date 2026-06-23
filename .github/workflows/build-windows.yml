@@ -1,0 +1,56 @@
+name: Build Windows app
+
+# Builds the double-click Windows executable on a Windows runner (PyInstaller
+# can't cross-compile from Linux). Produces a ready-to-send "TeamupDispatch"
+# folder as a downloadable artifact — no credentials are baked in; the recipient
+# supplies teamup-config.txt next to the .exe.
+
+on:
+  workflow_dispatch: {}        # "Run workflow" button in the Actions tab
+  push:
+    branches: [main]
+    paths:
+      - 'run_app.py'
+      - 'app/**'
+      - 'web/**'
+      - 'requirements.txt'
+      - 'packaging/**'
+      - '.github/workflows/build-windows.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build one-file executable
+        run: >
+          pyinstaller --onefile --name TeamupDispatch
+          --collect-submodules uvicorn
+          --add-data "web;web"
+          run_app.py
+
+      - name: Assemble hand-off folder
+        shell: pwsh
+        run: |
+          $out = "TeamupDispatch"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item dist/TeamupDispatch.exe $out/
+          Copy-Item packaging/teamup-config-EXAMPLE.txt $out/
+          Copy-Item "packaging/SCHEDULER-READ-ME-FIRST.txt" "$out/READ ME FIRST.txt"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeamupDispatch-windows
+          path: TeamupDispatch
+          if-no-files-found: error
