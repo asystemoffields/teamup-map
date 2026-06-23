@@ -1,17 +1,25 @@
 # Teamup Dispatch Map — credentials
 # ----------------------------------
 # 1. Rename this file to exactly:   teamup-config.txt
-# 2. Keep it in the SAME folder as TeamupDispatch.exe
+# 2. Keep it in the SAME folder as the app
 # 3. Paste the company values after the = signs (no spaces, no quotes)
-#
-# Find these in Teamup:
-#   TEAMUP_API_KEY      — an API key (read-only is enough for the map)
-#   TEAMUP_CALENDAR_ID  — the code in the calendar's share link,
-#                         e.g. teamup.com/ksABC123  ->  ksABC123
 
+# ===== Calendar 1 (e.g. Dispatch / Sales) =====
 TEAMUP_API_KEY=
 TEAMUP_CALENDAR_ID=
+TEAMUP_CALENDAR_NAME=Dispatch
 
-# Geocoder: turns each job's address into a map pin.
+# ===== Calendar 2 (e.g. Production crew) — optional second view =====
+# Fill these in to get a "Calendar" dropdown that swaps the whole map between
+# the two. Leave them blank for a single-calendar setup (no dropdown shown).
+TEAMUP_CALENDAR_ID_2=
+TEAMUP_CALENDAR_NAME_2=Production
+# Only if the production calendar needs a DIFFERENT Teamup key; otherwise it
+# reuses TEAMUP_API_KEY above.
+TEAMUP_API_KEY_2=
+
+# (You can add a 3rd, 4th, … the same way: TEAMUP_CALENDAR_ID_3, _NAME_3, etc.)
+
+# ===== Geocoder =====
 # "census" is best for rural US addresses; OSM ("nominatim") is the backup.
 GEOCODER=census,nominatim

@@ -10,6 +10,7 @@ const routeLayer = L.layerGroup().addTo(map);     // the connecting line (under 
 const markerLayer = L.featureGroup().addTo(map);  // job pins
 
 // ---- state ----
+let currentCal = null;          // active calendar key (cal1, cal2, …) or null = default
 let subcalendars = {};          // id -> {name, color(hex)}
 let subIndex = {};              // id -> position (palette fallback)
 let selected = new Set();       // selected sub-calendar ids
@@ -112,11 +113,49 @@ function jobIcon(color, number, prospectiveFlag) {
   });
 }
 
+// ---- calendars (top-level switcher between separate Teamup calendars) ----
+function calParam() { return currentCal ? "cal=" + encodeURIComponent(currentCal) + "&" : ""; }
+
+async function loadCalendars() {
+  let data;
+  try {
+    const r = await fetch("/api/calendars");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    data = await r.json();
+  } catch (e) { return; } // single-calendar server / older build: just skip the switcher
+  const cals = data.calendars || [];
+  currentCal = data.default || (cals[0] && cals[0].key) || null;
+  const sel = document.getElementById("calendar");
+  sel.innerHTML = "";
+  cals.forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.key; opt.textContent = c.name;
+    if (c.key === currentCal) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // only surface the switcher when there's actually more than one calendar
+  document.getElementById("calendar-control").classList.toggle("hidden", cals.length < 2);
+  sel.onchange = (e) => switchCalendar(e.target.value);
+}
+
+// swap the whole view to another calendar: reset every per-calendar filter so
+// the new calendar's sub-calendars/crews/colors start fresh, then reload.
+async function switchCalendar(key) {
+  if (key === currentCal) return;
+  currentCal = key;
+  subcalendars = {}; subIndex = {}; selected = new Set(); subsInitialized = false;
+  colorEnabled = new Set(); knownColors = new Set();
+  crewEnabled = new Set(); knownCrews = new Set(); crewColors = {};
+  lastEvents = []; firstFit = true; prospective = null;
+  await loadSubcalendars();
+  await loadEvents();
+}
+
 // ---- sub-calendars (filter + legend) + color filter ----
 async function loadSubcalendars() {
   let data;
   try {
-    const r = await fetch("/api/subcalendars");
+    const r = await fetch("/api/subcalendars?" + calParam());
     if (!r.ok) throw new Error("HTTP " + r.status);
     data = await r.json();
   } catch (e) {
@@ -214,6 +253,7 @@ async function loadEvents() {
   if (subsInitialized && selected.size === 0) { render([]); return; }
   const { from, to } = windowRange();
   const params = new URLSearchParams();
+  if (currentCal) params.set("cal", currentCal);
   if (from) params.set("from", from);
   if (to) params.set("to", to);
   if (selected.size) params.set("subcalendars", [...selected].join(","));
@@ -514,6 +554,7 @@ document.getElementById("p-clear").addEventListener("click", clearProspective);
   }));
 
 (async function init() {
+  await loadCalendars();
   await loadSubcalendars();
   await loadEvents();
   connectStream();

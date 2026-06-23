@@ -95,6 +95,17 @@ Copy `.env.example` to `.env` and set `TEAMUP_API_KEY` + `TEAMUP_CALENDAR_ID`
 - **API key**: request at https://apidocs.teamup.com/ (read-only is enough for the map).
 - **Calendar ID**: the code in your share URL, e.g. `teamup.com/ksABC123` -> `ksABC123`.
 
+### Multiple calendars (optional)
+
+Show several **entirely separate** Teamup calendars (e.g. a Dispatch calendar
+and a Production-crew calendar) and switch the whole view between them with a
+**Calendar dropdown** at the top of the sidebar. Add `TEAMUP_CALENDAR_ID_2`
+(+ `TEAMUP_CALENDAR_NAME_2`, and `TEAMUP_API_KEY_2` only if it needs a different
+key); `_3`, `_4`, … work too. Each calendar is namespaced (`cal1`, `cal2`, …):
+its own poller and `modifiedSince` token, its own events and sub-calendars, but
+a **shared geocode cache** (a given address is geocoded once across all of them).
+With a single calendar configured, the dropdown is hidden and nothing changes.
+
 ### Going live with webhooks (optional)
 
 The local box doesn't need a public URL for polling to work. If you want instant

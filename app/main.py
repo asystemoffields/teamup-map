@@ -28,6 +28,20 @@ from app.events_bus import publish, subscribe, unsubscribe
 _BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
 WEB = _BASE / "web"
 
+# the configured calendars (DEMO ships two; otherwise from the env). Resolved
+# once at import — by now run_app/launch have set DEMO + loaded the config file.
+CALS = config.active_calendars()
+CAL_KEYS = {c["key"] for c in CALS}
+DEFAULT_CAL = CALS[0]["key"] if CALS else "cal1"
+
+
+def _cal_param(request: Request) -> str:
+    """The calendar a request is asking for, validated against what's configured
+    (falls back to the first calendar, so old single-calendar clients still work)."""
+    c = request.query_params.get("cal")
+    return c if c in CAL_KEYS else DEFAULT_CAL
+
+
 # one shared HTTP client for the geocode/route endpoints (avoids per-request
 # connection churn when several users hit them at once)
 _http: "httpx.AsyncClient | None" = None
@@ -38,21 +52,24 @@ async def lifespan(app: FastAPI):
     global _http
     _http = httpx.AsyncClient(timeout=30)
     store.conn()  # initialize schema
-    poller_task = None
+    poller_tasks = []
     if config.DEMO:
         demo.load()
         publish({"type": "refresh"})
-        print("[startup] DEMO mode — sample data loaded, poller disabled")
+        print(f"[startup] DEMO mode — sample data for {len(CALS)} calendars, pollers disabled")
     else:
-        if not (config.API_KEY and config.CALENDAR_ID):
-            print("[startup] WARNING: TEAMUP_API_KEY / TEAMUP_CALENDAR_ID not set. "
-                  "Set them in .env, or run with DEMO=1.")
-        # keep the handle so we can cancel it cleanly on shutdown (and so a crash
-        # in poller setup isn't a silently-discarded task)
-        poller_task = asyncio.create_task(poller.run_poller())
+        if not CALS:
+            print("[startup] WARNING: no calendars configured. Set TEAMUP_CALENDAR_ID "
+                  "(and TEAMUP_CALENDAR_ID_2 for a second) in the config, or run with DEMO=1.")
+        # one poller per calendar; keep the handles so we can cancel cleanly on
+        # shutdown (and so a crash in poller setup isn't a silently-dropped task)
+        for c in CALS:
+            poller_tasks.append(asyncio.create_task(poller.run_poller(c)))
+        if CALS:
+            print("[startup] polling: " + ", ".join(f'{c["name"]} ({c["key"]})' for c in CALS))
     yield
-    if poller_task is not None:
-        poller_task.cancel()
+    for t in poller_tasks:
+        t.cancel()
     if _http is not None:
         await _http.aclose()
 
@@ -122,9 +139,16 @@ async def index() -> str:
     return (WEB / "index.html").read_text()
 
 
+@app.get("/api/calendars")
+async def api_calendars():
+    """The configured calendars for the UI's calendar switcher."""
+    return {"calendars": [{"key": c["key"], "name": c["name"]} for c in CALS],
+            "default": DEFAULT_CAL}
+
+
 @app.get("/api/subcalendars")
-async def api_subcalendars():
-    return {"subcalendars": store.get_subcalendars()}
+async def api_subcalendars(request: Request):
+    return {"subcalendars": store.get_subcalendars(_cal_param(request))}
 
 
 @app.get("/api/events")
@@ -132,7 +156,7 @@ async def api_events(request: Request):
     qp = request.query_params
     subs = qp.get("subcalendars")
     sub_ids = [int(x) for x in subs.split(",") if x] if subs else None
-    rows = store.query_events(qp.get("from"), qp.get("to"), sub_ids)
+    rows = store.query_events(_cal_param(request), qp.get("from"), qp.get("to"), sub_ids)
     slim = [{k: r.get(k) for k in _EVENT_FIELDS} for r in rows]
     return {"events": slim, "server_time": dt.datetime.now().isoformat()}
 

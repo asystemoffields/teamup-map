@@ -37,7 +37,10 @@ What this is:
 --------------------------------------------------
   USING THE MAP
 --------------------------------------------------
-  - Check / uncheck calendars on the left to show or hide their pins.
+  - CALENDAR dropdown (top of the panel): switch the whole map between the
+    calendars set up for you (e.g. Dispatch and Production). Each remembers its
+    own crews and colors. (Only appears when more than one calendar is set up.)
+  - Check / uncheck sub-calendars on the left to show or hide their pins.
   - Set the time window (try "Today") and click "Route" to number the day's
     stops in time order and draw the drive with total distance + time.
   - "Add a prospective job": type an address to see where a possible new

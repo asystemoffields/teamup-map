@@ -61,3 +61,40 @@ DB_PATH = os.environ.get("DB_PATH", "teamup_dispatch.db")
 
 # --- Demo mode: bundled sample data, no Teamup creds needed ---
 DEMO = os.environ.get("DEMO", "0").lower() in ("1", "true", "yes", "on")
+
+
+# --- Multi-calendar support --------------------------------------------------
+# The app can show several entirely separate Teamup calendars and let the user
+# switch between them. Calendar 1 uses the unsuffixed vars above; calendars 2..N
+# use _2.._N suffixes (TEAMUP_CALENDAR_ID_2, TEAMUP_CALENDAR_NAME_2, and an
+# optional TEAMUP_API_KEY_2 — else they reuse API_KEY). Each calendar gets a
+# stable internal key (cal1, cal2, …) used to namespace its data + route the UI.
+_MAX_CALENDARS = 8
+
+
+def _load_calendars():
+    cals = []
+    for slot in range(1, _MAX_CALENDARS + 1):
+        suffix = "" if slot == 1 else f"_{slot}"
+        cid = os.environ.get(f"TEAMUP_CALENDAR_ID{suffix}", "").strip()
+        if not cid:
+            continue
+        cals.append({
+            "key": f"cal{slot}",
+            "id": cid,
+            "token": os.environ.get(f"TEAMUP_API_KEY{suffix}", "").strip() or API_KEY,
+            "name": os.environ.get(f"TEAMUP_CALENDAR_NAME{suffix}", "").strip() or f"Calendar {slot}",
+        })
+    return cals
+
+
+def active_calendars():
+    """The calendars to show. DEMO ships two so the switcher is exercised
+    offline; otherwise read them from the environment. Evaluated at call time so
+    a late DEMO flip (e.g. the frozen .exe with no creds) is honored."""
+    if DEMO:
+        return [
+            {"key": "cal1", "id": "", "token": "", "name": "Sales"},
+            {"key": "cal2", "id": "", "token": "", "name": "Production"},
+        ]
+    return _load_calendars()

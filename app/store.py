@@ -26,14 +26,38 @@ def conn() -> sqlite3.Connection:
         _conn.execute("PRAGMA journal_mode=WAL")     # readers don't block the writer
         _conn.execute("PRAGMA busy_timeout=5000")    # wait, don't error, on transient locks
         _init(_conn)
+        _migrate(_conn)
     return _conn
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    """Bring a pre-multi-calendar DB up to the namespaced schema in place, so a
+    shipped warm cache keeps its geocode results instead of re-geocoding."""
+    ev_cols = [r[1] for r in c.execute("PRAGMA table_info(events)").fetchall()]
+    if ev_cols and "cal" not in ev_cols:
+        c.execute("ALTER TABLE events ADD COLUMN cal TEXT DEFAULT 'cal1'")
+        # Legacy rows hold raw Teamup ids; the poller now writes cal-prefixed ids
+        # ('cal1:123'), so namespace the old ids too — otherwise the next backfill
+        # would insert a second, duplicate copy of every existing event.
+        c.execute("UPDATE events SET id = cal || ':' || id WHERE instr(id, ':') = 0")
+    sc_cols = [r[1] for r in c.execute("PRAGMA table_info(subcalendars)").fetchall()]
+    if sc_cols and "cal" not in sc_cols:
+        # subcalendars is a derived cache (rebuilt from Teamup every startup), so
+        # it's safe to recreate it with the (cal, id) composite key.
+        c.execute("DROP TABLE subcalendars")
+        c.execute("CREATE TABLE subcalendars (cal TEXT NOT NULL DEFAULT 'cal1', "
+                  "id INTEGER, name TEXT, color TEXT, PRIMARY KEY (cal, id))")
+    # now that `cal` is guaranteed to exist on events, index it
+    c.execute("CREATE INDEX IF NOT EXISTS idx_events_cal ON events(cal)")
+    c.commit()
 
 
 def _init(c: sqlite3.Connection) -> None:
     c.executescript(
         """
         CREATE TABLE IF NOT EXISTS events (
-            id              TEXT PRIMARY KEY,
+            id              TEXT PRIMARY KEY,   -- '<cal>:<teamup id>' (namespaced)
+            cal             TEXT DEFAULT 'cal1',-- which configured calendar it came from
             subcalendar_id  INTEGER,
             subcalendar_ids TEXT,           -- json array
             title           TEXT,
@@ -52,7 +76,7 @@ def _init(c: sqlite3.Connection) -> None:
             deleted         INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS geocode_cache (
-            addr    TEXT PRIMARY KEY,        -- normalized address
+            addr    TEXT PRIMARY KEY,        -- normalized address (SHARED across calendars)
             lat     REAL,
             lng     REAL,
             status  TEXT,
@@ -60,9 +84,11 @@ def _init(c: sqlite3.Connection) -> None:
             ts      INTEGER
         );
         CREATE TABLE IF NOT EXISTS subcalendars (
-            id     INTEGER PRIMARY KEY,
+            cal    TEXT NOT NULL DEFAULT 'cal1',
+            id     INTEGER,
             name   TEXT,
-            color  TEXT
+            color  TEXT,
+            PRIMARY KEY (cal, id)
         );
         CREATE TABLE IF NOT EXISTS meta (
             key   TEXT PRIMARY KEY,
@@ -70,6 +96,8 @@ def _init(c: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_events_locnorm ON events(loc_norm);
         CREATE INDEX IF NOT EXISTS idx_events_geo ON events(geo_status);
+        -- NB: the idx_events_cal index is created in _migrate(), AFTER the cal
+        -- column is guaranteed to exist (an old DB gets it added there).
         """
     )
     c.commit()
@@ -102,35 +130,40 @@ def get_meta(key: str, default=None):
 
 # ---------------- subcalendars ----------------
 
-def upsert_subcalendars(subs) -> None:
+def upsert_subcalendars(subs, cal: str = "cal1") -> None:
     with _lock:
         c = conn()
         for s in subs:
             c.execute(
-                "INSERT INTO subcalendars(id,name,color) VALUES(?,?,?) "
-                "ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color",
+                "INSERT INTO subcalendars(cal,id,name,color) VALUES(?,?,?,?) "
+                "ON CONFLICT(cal,id) DO UPDATE SET name=excluded.name, color=excluded.color",
                 # Teamup gives `color` as an int id (1-48); store the resolved hex
                 # so the map inherits the real calendar color.
-                (s["id"], s.get("name", ""), resolve_color(s.get("color")) or ""),
+                (cal, s["id"], s.get("name", ""), resolve_color(s.get("color")) or ""),
             )
         c.commit()
 
 
-def get_subcalendars():
+def get_subcalendars(cal: str = "cal1"):
     with _lock:
-        return [dict(r) for r in conn().execute("SELECT * FROM subcalendars ORDER BY name").fetchall()]
+        return [dict(r) for r in conn().execute(
+            "SELECT id,name,color FROM subcalendars WHERE cal=? ORDER BY name", (cal,)
+        ).fetchall()]
 
 
 # ---------------- events ----------------
 
-def upsert_event(e) -> None:
-    """Insert/update one Teamup event. If its address is new (cache miss),
-    geo_status is set to 'pending' for the poller to resolve."""
+def upsert_event(e, cal: str = "cal1") -> None:
+    """Insert/update one Teamup event under calendar `cal`. The stored primary
+    key is namespaced ('<cal>:<teamup id>') so the same event id in two separate
+    calendars can't collide. If its address is new (cache miss), geo_status is
+    set to 'pending' for the poller to resolve."""
     with _lock:
         c = conn()
         deleted = 1 if (e.get("deleted") or e.get("delete_dt")) else 0
         loc = (e.get("location") or "").strip()
         norm = norm_addr(loc)
+        eid = f"{cal}:{e.get('id')}"
 
         lat = lng = None
         geo_status = "none"
@@ -149,9 +182,9 @@ def upsert_event(e) -> None:
 
         c.execute(
             """INSERT INTO events
-               (id,subcalendar_id,subcalendar_ids,title,who,location,loc_norm,notes,
+               (id,cal,subcalendar_id,subcalendar_ids,title,who,location,loc_norm,notes,
                 start_dt,end_dt,all_day,version,update_dt,lat,lng,geo_status,deleted)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET
                  subcalendar_id=excluded.subcalendar_id,
                  subcalendar_ids=excluded.subcalendar_ids,
@@ -162,7 +195,7 @@ def upsert_event(e) -> None:
                  lat=excluded.lat, lng=excluded.lng, geo_status=excluded.geo_status,
                  deleted=excluded.deleted""",
             (
-                e.get("id"), e.get("subcalendar_id"), json.dumps(subids),
+                eid, cal, e.get("subcalendar_id"), json.dumps(subids),
                 e.get("title", ""), e.get("who", ""), loc, norm, e.get("notes", ""),
                 e.get("start_dt"), e.get("end_dt"), 1 if e.get("all_day") else 0,
                 str(e.get("version", "")), e.get("update_dt", ""),
@@ -172,17 +205,20 @@ def upsert_event(e) -> None:
         c.commit()
 
 
-def pending_addresses(limit: int = 20):
-    """Distinct addresses still needing a geocode. Includes 'error' rows so a
-    TRANSIENT failure (timeout/429) is retried next cycle rather than sticking
-    forever; 'notfound' stays terminal."""
+def pending_addresses(cal: str = None, limit: int = 20):
+    """Distinct addresses still needing a geocode (optionally limited to one
+    calendar). Includes 'error' rows so a TRANSIENT failure (timeout/429) is
+    retried next cycle rather than sticking forever; 'notfound' stays terminal."""
+    q = ("SELECT loc_norm, MAX(location) AS loc FROM events "
+         "WHERE geo_status IN ('pending','error') AND deleted=0 AND loc_norm<>''")
+    args = []
+    if cal:
+        q += " AND cal=?"
+        args.append(cal)
+    q += " GROUP BY loc_norm LIMIT ?"
+    args.append(limit)
     with _lock:
-        rows = conn().execute(
-            "SELECT loc_norm, MAX(location) AS loc FROM events "
-            "WHERE geo_status IN ('pending','error') AND deleted=0 AND loc_norm<>'' "
-            "GROUP BY loc_norm LIMIT ?",
-            (limit,),
-        ).fetchall()
+        rows = conn().execute(q, args).fetchall()
     return [(r["loc_norm"], r["loc"]) for r in rows]
 
 
@@ -211,9 +247,9 @@ def save_geocode(norm: str, lat, lng, status: str, source: str) -> None:
         c.commit()
 
 
-def query_events(dt_from=None, dt_to=None, subcalendar_ids=None):
-    q = "SELECT * FROM events WHERE deleted=0"
-    args = []
+def query_events(cal="cal1", dt_from=None, dt_to=None, subcalendar_ids=None):
+    q = "SELECT * FROM events WHERE deleted=0 AND cal=?"
+    args = [cal]
     if dt_from:
         q += " AND (end_dt >= ? OR end_dt IS NULL)"
         args.append(dt_from)
