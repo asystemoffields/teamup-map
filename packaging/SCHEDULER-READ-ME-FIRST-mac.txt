@@ -1,0 +1,64 @@
+==================================================
+  Teamup Dispatch Map  —  READ ME FIRST  (Mac)
+==================================================
+
+What this is:
+  A live map of every job on the company calendar — each appointment is a pin,
+  colored by calendar, labeled with the customer name and time. It updates by
+  itself as the calendar changes. Use it to see the whole day at once and to
+  plan driving routes. It runs on YOUR Mac; nothing to install.
+
+
+--------------------------------------------------
+  STARTING IT  (the first time is special — please read)
+--------------------------------------------------
+  Keep all the items in this folder together — the app needs the
+  teamup-config.txt file sitting next to it.
+
+  FIRST TIME ONLY:
+  1. RIGHT-CLICK (or hold Control and click) TeamupDispatch.app
+  2. Choose "Open" from the menu
+  3. A box says it's from an unidentified developer -> click "Open"
+       (Plain double-clicking is blocked the first time because this is an
+        in-house app that isn't registered with Apple. This is expected.)
+
+  If you don't see an "Open" button, do this instead:
+     Apple menu -> System Settings -> Privacy & Security ->
+     scroll down to "TeamupDispatch was blocked" -> click "Open Anyway".
+
+  EVERY TIME AFTER THAT:
+  - Just double-click TeamupDispatch.app like normal.
+
+  Your web browser opens the map automatically. (If it doesn't, type this in:
+     http://127.0.0.1:8000 )
+
+
+--------------------------------------------------
+  STOPPING IT
+--------------------------------------------------
+  The app shows up in your Dock while it's running. To stop it:
+     right-click its Dock icon -> Quit   (or click it and press Cmd-Q).
+  Closing just the browser tab leaves it running in the background.
+
+
+--------------------------------------------------
+  USING THE MAP
+--------------------------------------------------
+  - Check / uncheck calendars on the left to show or hide their pins.
+  - Set the time window (try "Today") and click "Route" to number the day's
+    stops in time order and draw the drive with total distance + time.
+  - "Add a prospective job": type an address to see where a possible new
+    appointment fits into the day's route (nothing is written back to Teamup —
+    use "Copy address" to paste it into Teamup yourself).
+
+
+--------------------------------------------------
+  IF THE MAP IS EMPTY OR SHOWS SAN FRANCISCO "DEMO" JOBS
+--------------------------------------------------
+  That means it can't find the company credentials. Check that the file
+  named  teamup-config.txt  is in this same folder as the app, with the key
+  filled in. If you're not sure, ask Alex.
+  (A file named teamup-dispatch.log also appears here — if anything misbehaves,
+   send that file to Alex; it explains what went wrong.)
+
+==================================================

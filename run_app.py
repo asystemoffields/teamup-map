@@ -23,11 +23,30 @@ import time
 import webbrowser
 from pathlib import Path
 
-# --- 1. anchor persistent files (config + *.db) beside the executable --------
-# When frozen, sys.executable is the .exe itself; its folder is the only stable,
-# writable location we can count on. In a source checkout we leave cwd alone.
+# --- 1. anchor persistent files (config + *.db) beside the app ---------------
+# When frozen, write the config file + SQLite cache to a STABLE folder (one-file
+# bundles otherwise unpack to a throwaway temp dir each run, losing the cache).
+#   - Windows / Linux one-file: the folder holding the .exe / binary.
+#   - macOS .app bundle: sys.executable is Foo.app/Contents/MacOS/Foo, but the
+#     user keeps teamup-config.txt NEXT TO Foo.app, so climb out of the bundle.
 if getattr(sys, "frozen", False):
-    os.chdir(Path(sys.executable).resolve().parent)
+    exe_dir = Path(sys.executable).resolve().parent
+    if exe_dir.name == "MacOS" and exe_dir.parent.name == "Contents":
+        base_dir = exe_dir.parent.parent.parent       # folder containing Foo.app
+    else:
+        base_dir = exe_dir
+    os.chdir(base_dir)
+
+    # A macOS .app launched by double-click has no console (sys.stdout is None),
+    # so our prints + uvicorn's logs would vanish. Tee them to a log file beside
+    # the app so a misbehaving launch is diagnosable.
+    if sys.stdout is None or sys.stderr is None:
+        try:
+            _log = open(base_dir / "teamup-dispatch.log", "a", buffering=1,
+                        encoding="utf-8")
+            sys.stdout = sys.stderr = _log
+        except OSError:
+            pass
 
 PORT = int(os.environ.get("PORT", "8000"))
 URL = f"http://127.0.0.1:{PORT}"

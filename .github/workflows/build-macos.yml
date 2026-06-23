@@ -1,0 +1,69 @@
+name: Build macOS app
+
+# Builds the double-click macOS .app on Apple's runners (PyInstaller can't
+# cross-compile). Matrix covers both Mac CPU types. No credentials are baked in;
+# the recipient gets teamup-config.txt next to the .app.
+#
+# The .app is UNSIGNED beyond an ad-hoc signature (enough to run on Apple
+# Silicon, NOT notarized) — so on first launch the recipient must right-click
+# the app and choose Open (covered in the READ ME FIRST). Smooth double-click
+# would require an Apple Developer ID cert + notarization.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - 'run_app.py'
+      - 'app/**'
+      - 'web/**'
+      - 'requirements.txt'
+      - 'packaging/**'
+      - '.github/workflows/build-macos.yml'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14      # Apple Silicon (M-series, arm64)
+            arch: apple-silicon
+          - runner: macos-13      # Intel (x86_64)
+            arch: intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build .app bundle
+        run: >
+          pyinstaller --windowed --name TeamupDispatch
+          --collect-submodules uvicorn
+          --add-data "web:web"
+          run_app.py
+
+      - name: Ad-hoc sign the bundle
+        run: codesign --force --deep --sign - dist/TeamupDispatch.app
+
+      - name: Assemble hand-off folder
+        run: |
+          mkdir -p handoff
+          # tar (not zip) so the bundle's symlinks + exec bits survive transfer
+          tar -czf handoff/TeamupDispatch.app.tgz -C dist TeamupDispatch.app
+          cp packaging/teamup-config-EXAMPLE.txt handoff/
+          cp "packaging/SCHEDULER-READ-ME-FIRST-mac.txt" "handoff/READ ME FIRST.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TeamupDispatch-macos-${{ matrix.arch }}
+          path: handoff
+          if-no-files-found: error

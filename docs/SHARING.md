@@ -37,6 +37,33 @@ survives restarts. No credentials live in this repo or in CI.
 Edit `teamup-config.txt` in their folder (or send a new one) — **no rebuild
 needed.** Only changes to the code require a new CI build.
 
+## macOS (.app)
+
+Same idea, different runner: `.github/workflows/build-macos.yml` builds a
+double-click `TeamupDispatch.app` on Apple's runners — a **matrix of both CPU
+types**, producing two artifacts:
+
+- `TeamupDispatch-macos-apple-silicon` (M-series Macs — the common case)
+- `TeamupDispatch-macos-intel` (older Intel Macs)
+
+Pick the one matching the recipient's Mac. Each artifact holds the `.app` packed
+as `TeamupDispatch.app.tgz` (tar preserves the bundle's symlinks + exec bits),
+plus the credential template and a Mac-specific `READ ME FIRST.txt`. Assembly is
+the same as Windows except you untar the bundle and drop `teamup-config.txt` +
+`teamup_dispatch.db` **next to** the `.app` (never inside it — that's where the
+app looks, and it keeps the signature intact).
+
+**Gatekeeper, the catch.** The `.app` is only ad-hoc signed (not notarized), so
+on first launch the recipient must **right-click → Open → Open** (the Mac READ
+ME FIRST walks them through it). A clean double-click would need an Apple
+Developer ID cert ($99/yr) + notarization via `notarytool` — worth it only if
+you're handing this to many Mac users.
+
+**Untestable-from-Linux caveat.** We can't launch a macOS app from the Linux
+laptop, so verify the assembled `.app` on an actual Mac (or have the recipient
+do the right-click-Open test) before relying on it — the structural checks we
+run on Linux confirm the bundle is intact but not that it boots.
+
 ## Notes / gotchas
 
 - **SmartScreen**: the exe is unsigned, so Windows warns once. Tell the
