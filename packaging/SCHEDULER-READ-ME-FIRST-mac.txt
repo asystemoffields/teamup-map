@@ -15,6 +15,14 @@ What this is:
   Keep all the items in this folder together — the app needs the
   teamup-config.txt file sitting next to it.
 
+  *** IMPORTANT — DO THIS FIRST ***
+  Drag the whole "TeamupDispatch" folder OUT of the zip and onto your
+  Desktop, then open it from there. If you run the app while it's still
+  inside the zip (a read-only spot), it can't save its data and will fail
+  to start. Desktop (or Applications) works fine.
+  Also: if an OLDER copy is still running, quit it first — right-click its
+  icon in the Dock and choose Quit (two copies fight over the same port).
+
   FIRST TIME ONLY:
   1. RIGHT-CLICK (or hold Control and click) TeamupDispatch.app
   2. Choose "Open" from the menu

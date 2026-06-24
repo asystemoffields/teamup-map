@@ -12,8 +12,12 @@ What this is:
 --------------------------------------------------
   STARTING IT
 --------------------------------------------------
-  1. Keep ALL the files in this folder together. Don't move the .exe out by
-     itself — it needs the teamup-config.txt file next to it.
+  1. EXTRACT FIRST. Right-click the downloaded zip -> "Extract All" to a real
+     folder (e.g. your Desktop), and run it from there. Don't run it from
+     inside the zip preview — it can't save its data there and won't start.
+     Keep ALL the files in the folder together — the .exe needs the
+     teamup-config.txt file next to it.
+     (If an older copy is still running, close its black window first.)
 
   2. Double-click:   TeamupDispatch.exe
 
