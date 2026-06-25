@@ -63,6 +63,36 @@ DB_PATH = os.environ.get("DB_PATH", "teamup_dispatch.db")
 DEMO = os.environ.get("DEMO", "0").lower() in ("1", "true", "yes", "on")
 
 
+# --- Weather warnings (US National Weather Service: free, NO API key) ---------
+# A per-job risk badge on the map from api.weather.gov: official NWS alerts
+# (watch/warning/advisory -> red) plus a forecast for the job's time window
+# (rain/snow/wind work-stoppers -> yellow). US-only, which fits N. Michigan + UP.
+WEATHER = os.environ.get("WEATHER", "1").lower() in ("1", "true", "yes", "on")
+# NWS asks every caller to send a contact (email or site) in the User-Agent.
+# Falls back to the Nominatim contact you already set, then a placeholder.
+WEATHER_CONTACT = os.environ.get("WEATHER_CONTACT", "").strip() or NOMINATIM_EMAIL
+# Only assess jobs starting within this many days (NWS forecasts run ~7 days).
+WEATHER_HORIZON_DAYS = int(os.environ.get("WEATHER_HORIZON_DAYS", "7"))
+# Forecast work-stopper thresholds, flagged 🟡 when exceeded during the window:
+WEATHER_RAIN_POP = int(os.environ.get("WEATHER_RAIN_POP", "50"))   # precip probability %
+WEATHER_WIND_MPH = int(os.environ.get("WEATHER_WIND_MPH", "20"))   # sustained wind mph
+WEATHER_GUST_MPH = int(os.environ.get("WEATHER_GUST_MPH", "30"))   # wind gust mph
+
+
+def _int_or_none(v):
+    v = (v or "").strip()
+    return int(v) if v else None
+
+
+# Optional temperature flags (blank = off, the balanced default). Set e.g.
+# WEATHER_COLD_F=20 / WEATHER_HEAT_F=90 for the "aggressive" material-cure heads-up.
+WEATHER_COLD_F = _int_or_none(os.environ.get("WEATHER_COLD_F", ""))
+WEATHER_HEAT_F = _int_or_none(os.environ.get("WEATHER_HEAT_F", ""))
+# Backstop on a cold-cache pass so a huge window can't fan out to NWS without
+# bound; soonest jobs are kept first. Distinct job locations per /api/weather call.
+WEATHER_MAX_POINTS = int(os.environ.get("WEATHER_MAX_POINTS", "80"))
+
+
 # --- Multi-calendar support --------------------------------------------------
 # The app can show several entirely separate Teamup calendars and let the user
 # switch between them. Calendar 1 uses the unsuffixed vars above; calendars 2..N

@@ -94,6 +94,11 @@ def _init(c: sqlite3.Connection) -> None:
             key   TEXT PRIMARY KEY,
             value TEXT
         );
+        CREATE TABLE IF NOT EXISTS weather_cache (
+            key     TEXT PRIMARY KEY,   -- wx:point/fc/al:<coords-or-grid>
+            payload TEXT,               -- json (grid mapping | forecast periods | alerts)
+            expires INTEGER             -- unix ts; row ignored once past
+        );
         CREATE INDEX IF NOT EXISTS idx_events_locnorm ON events(loc_norm);
         CREATE INDEX IF NOT EXISTS idx_events_geo ON events(geo_status);
         -- NB: the idx_events_cal index is created in _migrate(), AFTER the cal
@@ -243,6 +248,35 @@ def save_geocode(norm: str, lat, lng, status: str, source: str) -> None:
         c.execute(
             "UPDATE events SET lat=?, lng=?, geo_status=? WHERE loc_norm=?",
             (lat, lng, status, norm),
+        )
+        c.commit()
+
+
+# ---------------- weather cache ----------------
+
+def get_weather_cache(key: str):
+    """Cached JSON payload for `key`, or None if missing/expired. Note: a
+    legitimately-empty payload (e.g. [] for 'no active alerts') is returned as
+    [], distinct from None — callers use `is not None` to honor that cache hit."""
+    with _lock:
+        row = conn().execute(
+            "SELECT payload, expires FROM weather_cache WHERE key=?", (key,)
+        ).fetchone()
+    if not row or (row["expires"] and row["expires"] < time.time()):
+        return None
+    try:
+        return json.loads(row["payload"])
+    except (ValueError, TypeError):
+        return None
+
+
+def set_weather_cache(key: str, payload, ttl: int) -> None:
+    with _lock:
+        c = conn()
+        c.execute(
+            "INSERT INTO weather_cache(key,payload,expires) VALUES(?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, expires=excluded.expires",
+            (key, json.dumps(payload), int(time.time()) + ttl),
         )
         c.commit()
 

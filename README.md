@@ -50,6 +50,37 @@ Teamup  --modifiedSince poll-->  upsert  -->  geocode (cached)  -->  SQLite
   driving routes), with automatic **haversine straight-line fallback** if OSRM is
   unreachable. Configurable via `ROUTING` + `OSRM_URL` (point at a self-hosted OSRM
   or a paid provider without touching the frontend).
+- **Weather** (`app/weather.py`): per-job risk badges on the map from the US
+  **National Weather Service** (`api.weather.gov` — free, **no API key**, US-only).
+  Because every job already has a lat/lng from the geocoder, each upcoming job gets
+  its forecast and any active NWS alerts for that exact point. See below.
+
+## Weather warnings
+
+Exterior trades live and die by the weather, so each mapped job within the
+forecast horizon (default 7 days) carries a small corner badge:
+
+- 🔴 **red** — an official NWS **watch / warning / advisory** is active for that
+  location during the job's time window (e.g. *Winter Storm Warning*, *High Wind
+  Warning*). The alert name is shown verbatim.
+- 🟡 **yellow** — a forecast **work-stopper** in the window: precipitation
+  probability ≥ `WEATHER_RAIN_POP` (50%), **any snow**, or wind ≥ `WEATHER_WIND_MPH`
+  sustained (20) / `WEATHER_GUST_MPH` gust (30). Optional cold/heat flags
+  (`WEATHER_COLD_F` / `WEATHER_HEAT_F`) are off by default.
+- 🟢 **green** — nothing notable. No badge, but the popup still shows the forecast.
+
+Click a pin to see the full forecast for the job's window (conditions, temp, wind,
+precip chance) plus any alert text. A glyph (❄ snow · 💨 wind · 🌧 rain · ⚠ other)
+hints at the dominant condition. The **Weather warnings** checkbox in the sidebar
+toggles the whole layer.
+
+It's served at `GET /api/weather` (same `cal`/`from`/`to`/`subcalendars` filters as
+`/api/events`, keyed by event id) and overlaid **after** the map renders, so a slow
+lookup never delays the map and a failure just means no badge. NWS responses are
+cached in SQLite — the point→grid mapping effectively forever, the forecast ~1h,
+alerts ~10min — so repeat loads are instant and we stay polite to the free service.
+NWS asks callers to identify themselves: set `WEATHER_CONTACT` (it falls back to
+`NOMINATIM_EMAIL`). Set `WEATHER=0` to disable. US-only by nature of NWS.
 
 ## Easiest: double-click to launch
 

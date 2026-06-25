@@ -26,6 +26,9 @@ let prospective = null;         // {address,name,time,lat,lng,status}
 let lastEvents = [];            // last server-filtered events (re-render without refetch)
 let firstFit = true;
 let routeReq = 0;               // token to ignore stale /api/route responses
+let weatherByEvent = {};        // event id -> NWS weather assessment (from /api/weather)
+let weatherEnabled = true;      // "Weather warnings" toggle
+let weatherReq = 0;             // token to ignore stale /api/weather responses
 
 const PALETTE = ["#e6194b","#3cb44b","#4363d8","#f58231","#911eb4","#46f0f0",
                  "#f032e6","#bcf60c","#fabebe","#008080","#9a6324","#800000"];
@@ -103,14 +106,33 @@ function windowRange() {
 }
 
 // ---- markers ----
-function jobIcon(color, number, prospectiveFlag) {
+function jobIcon(color, number, prospectiveFlag, wx) {
   const cls = "job-marker" + (prospectiveFlag ? " prospective" : "") + (number != null ? " numbered" : "");
   const inner = number != null ? number : (prospectiveFlag ? "?" : "");
+  const badge = wx && (wx.severity === "red" || wx.severity === "yellow")
+    ? `<div class="wx-badge wx-${wx.severity}">${esc(wx.glyph || "⚠")}</div>` : "";
   return L.divIcon({
     className: "",
-    html: `<div class="${cls}" style="--c:${color}">${inner}</div>`,
+    html: `<div class="${cls}" style="--c:${color}">${inner}${badge}</div>`,
     iconSize: [24, 24], iconAnchor: [12, 12],
   });
+}
+
+// the weather block appended to a job's popup (forecast for its time window)
+function weatherPopupHtml(e) {
+  if (!e || !weatherEnabled) return "";
+  const wx = weatherByEvent[e.id];
+  if (!wx) return "";
+  const parts = [];
+  if (wx.short) parts.push(esc(wx.short));
+  if (wx.temp != null) parts.push(esc(wx.temp + "°" + (wx.unit || "")));
+  if (wx.wind) parts.push(esc(wx.wind));
+  if (wx.pop != null) parts.push(esc(wx.pop + "% precip"));
+  const alertLine = (wx.alerts && wx.alerts.length)
+    ? wx.alerts.map((a) => `<b>${esc(a.event)}</b>`).join(", ") + "<br>" : "";
+  return `<div class="pw wx-${wx.severity}">` +
+    `<span class="pw-g">${esc(wx.glyph || (wx.severity === "green" ? "☀" : "⚠"))}</span>` +
+    alertLine + parts.join(" · ") + `</div>`;
 }
 
 // ---- calendars (top-level switcher between separate Teamup calendars) ----
@@ -147,6 +169,7 @@ async function switchCalendar(key) {
   colorEnabled = new Set(); knownColors = new Set();
   crewEnabled = new Set(); knownCrews = new Set(); crewColors = {};
   lastEvents = []; firstFit = true; prospective = null;
+  weatherByEvent = {}; weatherReq++;   // drop the previous calendar's weather
   await loadSubcalendars();
   await loadEvents();
 }
@@ -269,6 +292,29 @@ async function loadEvents() {
   const events = data.events || [];
   buildCrewFilter(events);   // refresh crew chips from the current data
   render(events);
+  if (weatherEnabled) loadWeather();  // async overlay; map already rendered
+}
+
+// Fetch per-job weather for the same window/calendar and repaint badges. Runs
+// after the map is already drawn, so a slow NWS lookup never delays the map; a
+// failure is swallowed (weather is best-effort). Uses the same server-side
+// filters as /api/events so ids line up.
+async function loadWeather() {
+  const req = ++weatherReq;
+  const { from, to } = windowRange();
+  const params = new URLSearchParams();
+  if (currentCal) params.set("cal", currentCal);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (selected.size) params.set("subcalendars", [...selected].join(","));
+  try {
+    const r = await fetch("/api/weather?" + params.toString());
+    if (!r.ok) return;
+    const data = await r.json();
+    if (req !== weatherReq) return;        // a newer load superseded this one
+    weatherByEvent = data.weather || {};
+    rerender();
+  } catch (e) { /* best-effort: leave the map as-is */ }
 }
 
 function rerender() { render(lastEvents); }
@@ -355,7 +401,8 @@ function render(events) {
   ordered.forEach((s, i) => {
     bounds.push([s.lat, s.lng]);
     const num = routeMode ? i + 1 : null;
-    const m = L.marker([s.lat, s.lng], { icon: jobIcon(s.color, num, s.kind === "prospective") }).addTo(markerLayer);
+    const wx = (weatherEnabled && s.e) ? weatherByEvent[s.e.id] : null;
+    const m = L.marker([s.lat, s.lng], { icon: jobIcon(s.color, num, s.kind === "prospective", wx) }).addTo(markerLayer);
     const when = fmtTime(s.time);
     const pillTime = s.kind === "prospective"
       ? (pInfo && pInfo.suggested ? "suggested" : "prospective")
@@ -369,12 +416,15 @@ function render(events) {
       `<div class="pt">${esc(s.title)}</div>` +
       (s.who ? `<div class="pm">${esc(s.who)}</div>` : "") +
       (when ? `<div class="pm">${when}</div>` : "") +
-      `<div class="pm">${esc(s.location || "")}</div>`);
+      `<div class="pm">${esc(s.location || "")}</div>` +
+      weatherPopupHtml(s.e));
     if (s.kind === "job") {
+      const wxLn = (wx && wx.severity !== "green")
+        ? `<span class="wx-ln" title="${esc(wx.summary || "")}">${esc(wx.glyph || "⚠")}</span>` : "";
       const li = document.createElement("li");
       li.style.borderLeftColor = s.color;
       li.innerHTML = (num != null ? `<span class="ln">${num}</span>` : "") +
-        `<span class="t">${esc(s.title)}</span><span class="m">${when}${s.who ? " · " + esc(s.who) : ""}</span>`;
+        `<span class="t">${esc(s.title)}</span><span class="m">${wxLn}${when}${s.who ? " · " + esc(s.who) : ""}</span>`;
       li.addEventListener("click", () => { map.setView([s.lat, s.lng], 15); m.openPopup(); });
       list.appendChild(li);
     }
@@ -544,6 +594,11 @@ document.getElementById("colors-all").addEventListener("click", () => {
   rerender();
 });
 document.getElementById("route-toggle").addEventListener("change", (e) => { routeMode = e.target.checked; rerender(); });
+document.getElementById("weather-toggle").addEventListener("change", (e) => {
+  weatherEnabled = e.target.checked;
+  if (weatherEnabled) loadWeather();
+  else { weatherByEvent = {}; weatherReq++; rerender(); }  // clear badges + ignore in-flight
+});
 document.getElementById("p-add").addEventListener("click", addProspective);
 document.getElementById("p-copy").addEventListener("click", copyAddress);
 document.getElementById("p-clear").addEventListener("click", clearProspective);

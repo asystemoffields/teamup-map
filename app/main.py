@@ -19,7 +19,7 @@ _EVENT_FIELDS = (
     "start_dt", "end_dt", "all_day", "lat", "lng", "geo_status",
 )
 
-from app import config, demo, geocode, poller, routing, store
+from app import config, demo, geocode, poller, routing, store, weather
 from app.events_bus import publish, subscribe, unsubscribe
 
 # Static assets live in web/. In a normal checkout that's next to app/; when
@@ -159,6 +159,21 @@ async def api_events(request: Request):
     rows = store.query_events(_cal_param(request), qp.get("from"), qp.get("to"), sub_ids)
     slim = [{k: r.get(k) for k in _EVENT_FIELDS} for r in rows]
     return {"events": slim, "server_time": dt.datetime.now().isoformat()}
+
+
+@app.get("/api/weather")
+async def api_weather(request: Request):
+    """Per-job weather risk for the same window/calendar the map is showing,
+    keyed by event id. Best-effort and cached server-side, so the map renders
+    instantly and the browser overlays badges when this returns."""
+    if not config.WEATHER:
+        return {"enabled": False, "weather": {}}
+    qp = request.query_params
+    subs = qp.get("subcalendars")
+    sub_ids = [int(x) for x in subs.split(",") if x] if subs else None
+    rows = store.query_events(_cal_param(request), qp.get("from"), qp.get("to"), sub_ids)
+    assessments = await weather.assess_events(rows, _http)
+    return {"enabled": True, "weather": assessments}
 
 
 @app.get("/api/geocode")
