@@ -164,7 +164,7 @@ async def index() -> str:
     # earlier window.__CALENDARS__ embed never ran). A JSON data block isn't
     # script-src-governed, so it survives the CSP; app.js reads it by id. The page
     # loads => the calendars are present. /api/calendars stays as a fallback.
-    html = (WEB / "index.html").read_text()
+    html = (WEB / "index.html").read_text(encoding="utf-8")
     # escape `<` so a calendar name can't close the data block early (defense in depth)
     payload = json.dumps(_calendars_payload()).replace("<", "\\u003c")
     inject = f'<script type="application/json" id="__calendars__">{payload}</script>\n'
