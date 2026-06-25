@@ -139,12 +139,18 @@ function weatherPopupHtml(e) {
 function calParam() { return currentCal ? "cal=" + encodeURIComponent(currentCal) + "&" : ""; }
 
 async function loadCalendars() {
-  let data;
-  try {
-    const r = await fetch("/api/calendars");
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    data = await r.json();
-  } catch (e) { return; } // single-calendar server / older build: just skip the switcher
+  // Retry a few times: a single transient failure on this (the very first) call
+  // must not permanently hide the calendar switcher. cache:no-store so a stale
+  // copy can't answer either.
+  let data = null;
+  for (let attempt = 0; attempt < 6 && !data; attempt++) {
+    try {
+      const r = await fetch("/api/calendars", { cache: "no-store" });
+      if (r.ok) data = await r.json();
+    } catch (e) { /* retry */ }
+    if (!data) await new Promise((res) => setTimeout(res, 400));
+  }
+  if (!data) return; // truly unreachable: fall back to single-calendar view
   const cals = data.calendars || [];
   currentCal = data.default || (cals[0] && cals[0].key) || null;
   const sel = document.getElementById("calendar");

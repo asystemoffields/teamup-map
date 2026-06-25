@@ -118,13 +118,39 @@ def _load_calendars():
     return cals
 
 
+# Built-in calendars for THIS company's deployment, used as a self-healing
+# fallback when the environment/config file yields fewer than two — so a
+# per-machine config-read hiccup (an edited/odd-encoded teamup-config.txt, a
+# dropped line, etc.) can NEVER silently hide the Production view. It only
+# activates when the configured calendar is the company's own Dispatch calendar,
+# so a generic single-calendar user with a different calendar is left untouched.
+# (IDs are not secret — they're the codes in the calendars' Teamup share URLs.)
+_COMPANY_CALENDARS = [
+    {"key": "cal1", "id": "ksr8tjjmuxb7vqxqi9", "name": "Dispatch"},
+    {"key": "cal2", "id": "ksmr9v8otcjz134gn9", "name": "Production"},
+]
+
+
 def active_calendars():
     """The calendars to show. DEMO ships two so the switcher is exercised
-    offline; otherwise read them from the environment. Evaluated at call time so
-    a late DEMO flip (e.g. the frozen .exe with no creds) is honored."""
+    offline; otherwise read them from the environment, with a self-healing
+    fallback to the baked company set. Evaluated at call time so a late DEMO flip
+    (e.g. the frozen .exe with no creds) is honored."""
     if DEMO:
         return [
             {"key": "cal1", "id": "", "token": "", "name": "Sales"},
             {"key": "cal2", "id": "", "token": "", "name": "Production"},
         ]
-    return _load_calendars()
+    cals = _load_calendars()
+    if len(cals) >= 2:
+        return cals
+    # Fewer than two loaded. If the configured calendar (or the default
+    # CALENDAR_ID) IS the company's Dispatch calendar, restore the full baked
+    # set so Production always appears — using whatever auth token is already
+    # working (Dispatch is live, so its token is good). Generic users with a
+    # different single calendar fall through unchanged.
+    configured_id = cals[0]["id"] if cals else CALENDAR_ID
+    token = (cals[0]["token"] if cals else API_KEY) or API_KEY
+    if token and configured_id == _COMPANY_CALENDARS[0]["id"]:
+        return [{**c, "token": token} for c in _COMPANY_CALENDARS]
+    return cals
