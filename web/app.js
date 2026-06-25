@@ -139,13 +139,13 @@ function weatherPopupHtml(e) {
 function calParam() { return currentCal ? "cal=" + encodeURIComponent(currentCal) + "&" : ""; }
 
 async function loadCalendars() {
-  // Retry a few times: a single transient failure on this (the very first) call
-  // must not permanently hide the calendar switcher. cache:no-store so a stale
-  // copy can't answer either.
-  let data = null;
+  // Prefer the list the server baked into the page (window.__CALENDARS__): if the
+  // page rendered at all, the calendars are already here — no fetch to fail. Fall
+  // back to /api/calendars (with retries) only if the inline payload is absent.
+  let data = (typeof window !== "undefined" && window.__CALENDARS__) || null;
   for (let attempt = 0; attempt < 6 && !data; attempt++) {
     try {
-      const r = await fetch("/api/calendars", { cache: "no-store" });
+      const r = await fetch("/api/calendars");
       if (r.ok) data = await r.json();
     } catch (e) { /* retry */ }
     if (!data) await new Promise((res) => setTimeout(res, 400));

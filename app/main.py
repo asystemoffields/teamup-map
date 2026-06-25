@@ -138,16 +138,27 @@ async def _security_and_cache_headers(request: Request, call_next):
     return resp
 
 
+def _calendars_payload() -> dict:
+    return {"calendars": [{"key": c["key"], "name": c["name"]} for c in CALS],
+            "default": DEFAULT_CAL}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index() -> str:
-    return (WEB / "index.html").read_text()
+    # Bake the calendar list straight into the page so the switcher never depends
+    # on a separate /api/calendars fetch succeeding in the browser (that fetch was
+    # silently failing on at least one machine, hiding the second calendar). The
+    # page loads => the calendars are present. /api/calendars stays as a fallback.
+    html = (WEB / "index.html").read_text()
+    inject = f"<script>window.__CALENDARS__ = {json.dumps(_calendars_payload())};</script>\n"
+    return html.replace("</head>", inject + "</head>", 1)
 
 
 @app.get("/api/calendars")
 async def api_calendars():
-    """The configured calendars for the UI's calendar switcher."""
-    return {"calendars": [{"key": c["key"], "name": c["name"]} for c in CALS],
-            "default": DEFAULT_CAL}
+    """The configured calendars for the UI's calendar switcher (fallback; the
+    page also embeds this via window.__CALENDARS__)."""
+    return _calendars_payload()
 
 
 @app.get("/api/subcalendars")
