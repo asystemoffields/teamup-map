@@ -139,10 +139,15 @@ function weatherPopupHtml(e) {
 function calParam() { return currentCal ? "cal=" + encodeURIComponent(currentCal) + "&" : ""; }
 
 async function loadCalendars() {
-  // Prefer the list the server baked into the page (window.__CALENDARS__): if the
-  // page rendered at all, the calendars are already here — no fetch to fail. Fall
-  // back to /api/calendars (with retries) only if the inline payload is absent.
-  let data = (typeof window !== "undefined" && window.__CALENDARS__) || null;
+  // Prefer the list the server baked into the page as a JSON data block: if the
+  // page rendered at all, the calendars are already here — no fetch to fail or be
+  // served stale from cache. A <script type="application/json"> block (unlike an
+  // executable inline <script>) isn't governed by the CSP script-src, so it runs
+  // everywhere. Fall back to a legacy window.__CALENDARS__, then /api/calendars.
+  let data = null;
+  const _el = typeof document !== "undefined" && document.getElementById("__calendars__");
+  if (_el) { try { data = JSON.parse(_el.textContent); } catch (e) { data = null; } }
+  if (!data) data = (typeof window !== "undefined" && window.__CALENDARS__) || null;
   for (let attempt = 0; attempt < 6 && !data; attempt++) {
     try {
       const r = await fetch("/api/calendars");

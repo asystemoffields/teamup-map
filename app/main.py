@@ -126,15 +126,23 @@ _CSP = (
 @app.middleware("http")
 async def _security_and_cache_headers(request: Request, call_next):
     """CSP on every response (defense-in-depth backstop for XSS), plus no-store
-    on the page/static assets so a browser can NEVER show a stale app.js/index.html
-    after the app is updated. (no-cache only forces revalidation; some browsers
-    still re-displayed an old in-memory/back-forward page after a new build, which
-    looked like a missing feature — no-store removes the copy entirely.)"""
+    on the page/static assets AND the JSON API so a browser can NEVER show a stale
+    app.js/index.html — or a stale API response — after the app is updated.
+    (no-cache only forces revalidation; some browsers still re-displayed an old
+    in-memory/back-forward page after a new build, which looked like a missing
+    feature — no-store removes the copy entirely.)
+
+    /api MUST be covered: /api/calendars has no query string, so its URL is stable
+    and a browser (Safari especially) will heuristically cache it. A copy cached
+    from a single-calendar era then pins the calendar switcher to one calendar
+    forever — the second calendar's events still render (their /api/events URL
+    carries a date window, so it's never cached), so the symptom is 'one calendar
+    shows, the other silently never appears' that survives every rebuild."""
     resp = await call_next(request)
     resp.headers["Content-Security-Policy"] = _CSP
     resp.headers["X-Content-Type-Options"] = "nosniff"
     path = request.url.path
-    if path == "/" or path.startswith("/static"):
+    if path == "/" or path.startswith("/static") or path.startswith("/api"):
         resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         resp.headers["Pragma"] = "no-cache"           # HTTP/1.0 caches
         resp.headers["Expires"] = "0"                 # proxies / very old browsers
@@ -149,11 +157,17 @@ def _calendars_payload() -> dict:
 @app.get("/", response_class=HTMLResponse)
 async def index() -> str:
     # Bake the calendar list straight into the page so the switcher never depends
-    # on a separate /api/calendars fetch succeeding in the browser (that fetch was
-    # silently failing on at least one machine, hiding the second calendar). The
-    # page loads => the calendars are present. /api/calendars stays as a fallback.
+    # on a separate /api/calendars fetch succeeding (or not being served stale from
+    # cache) in the browser. Use a <script type="application/json"> DATA block, not
+    # an executable inline <script>: the CSP is `script-src 'self'` with no
+    # 'unsafe-inline'/nonce, so an inline script is refused outright (that's why the
+    # earlier window.__CALENDARS__ embed never ran). A JSON data block isn't
+    # script-src-governed, so it survives the CSP; app.js reads it by id. The page
+    # loads => the calendars are present. /api/calendars stays as a fallback.
     html = (WEB / "index.html").read_text()
-    inject = f"<script>window.__CALENDARS__ = {json.dumps(_calendars_payload())};</script>\n"
+    # escape `<` so a calendar name can't close the data block early (defense in depth)
+    payload = json.dumps(_calendars_payload()).replace("<", "\\u003c")
+    inject = f'<script type="application/json" id="__calendars__">{payload}</script>\n'
     return html.replace("</head>", inject + "</head>", 1)
 
 
