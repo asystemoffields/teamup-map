@@ -122,15 +122,19 @@ _CSP = (
 
 @app.middleware("http")
 async def _security_and_cache_headers(request: Request, call_next):
-    """CSP on every response (defense-in-depth backstop for XSS), plus no-cache
-    on the page/static assets so a stale app.js/index.html isn't served after an
-    update."""
+    """CSP on every response (defense-in-depth backstop for XSS), plus no-store
+    on the page/static assets so a browser can NEVER show a stale app.js/index.html
+    after the app is updated. (no-cache only forces revalidation; some browsers
+    still re-displayed an old in-memory/back-forward page after a new build, which
+    looked like a missing feature — no-store removes the copy entirely.)"""
     resp = await call_next(request)
     resp.headers["Content-Security-Policy"] = _CSP
     resp.headers["X-Content-Type-Options"] = "nosniff"
     path = request.url.path
     if path == "/" or path.startswith("/static"):
-        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"           # HTTP/1.0 caches
+        resp.headers["Expires"] = "0"                 # proxies / very old browsers
     return resp
 
 
