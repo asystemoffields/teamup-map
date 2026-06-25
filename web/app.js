@@ -381,7 +381,8 @@ function render(events) {
     } else {
       const reason = !e.location ? "no address" :
         e.geo_status === "pending" ? "geocoding…" :
-        e.geo_status === "notfound" ? "address not found" : "geocode error";
+        e.geo_status === "notfound" ? "address not found" :
+        e.geo_status === "outofarea" ? "outside service area" : "geocode error";
       const li = document.createElement("li");
       li.textContent = `${e.title} — ${reason}`;
       unmapped.appendChild(li);

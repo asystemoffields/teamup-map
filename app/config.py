@@ -45,6 +45,25 @@ GEOCODER = os.environ.get("GEOCODER", "nominatim").lower()          # nominatim 
 GEOCODER_API_KEY = os.environ.get("GEOCODER_API_KEY", "")
 NOMINATIM_EMAIL = os.environ.get("NOMINATIM_EMAIL", "")              # courtesy contact per OSM policy
 
+
+def _parse_bbox(s):
+    parts = [p for p in (s or "").replace(" ", "").split(",") if p]
+    if len(parts) != 4:
+        return None
+    try:
+        minlat, minlng, maxlat, maxlng = (float(x) for x in parts)
+        return (minlat, minlng, maxlat, maxlng)
+    except (ValueError, TypeError):
+        return None
+
+
+# Region fence: a geocode that lands OUTSIDE this lat/lng box is dropped to the
+# "Unmapped" tray instead of dropping a pin — so a junk location ("Office", or a
+# street with no city) can't fling a job to the far side of the planet. Format:
+# "minlat,minlng,maxlat,maxlng". Default covers the Upper-Midwest service area
+# (Michigan + neighbors). Set GEO_BBOX="" to disable (e.g. a nationwide install).
+GEO_BBOX = _parse_bbox(os.environ.get("GEO_BBOX", "41,-91,48.5,-82"))
+
 # --- Routing (connecting line + distance/duration) ---
 ROUTING = os.environ.get("ROUTING", "osrm").lower()                 # osrm | haversine
 OSRM_URL = os.environ.get("OSRM_URL", "https://router.project-osrm.org")

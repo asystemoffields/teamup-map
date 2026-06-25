@@ -36,12 +36,23 @@ _PROVIDERS = {
 }
 
 
+def _in_region(lat, lng) -> bool:
+    """Is (lat, lng) inside the configured service-area box? True when no fence
+    is set, so generic installs are unaffected."""
+    b = config.GEO_BBOX
+    if not b:
+        return True
+    return b[0] <= lat <= b[2] and b[1] <= lng <= b[3]
+
+
 async def geocode(address: str, client: httpx.AsyncClient):
-    """Try each provider in the GEOCODER chain until one returns a hit.
-    Returns 'error' (transient, retried later) if every provider failed and at
-    least one failed transiently; 'notfound' (terminal) only if all said notfound."""
+    """Try each provider in the GEOCODER chain until one returns a hit INSIDE the
+    service-area fence. Returns 'error' (transient, retried later) if every
+    provider failed transiently; 'outofarea' (terminal) if the only hits were
+    outside the fence (junk location text); 'notfound' (terminal) if all missed."""
     chain = [p.strip() for p in config.GEOCODER.split(",") if p.strip()] or ["nominatim"]
     saw_error = False
+    saw_outofarea = False
     for provider in chain:
         fn = _PROVIDERS.get(provider, _PROVIDERS["nominatim"])
         try:
@@ -53,9 +64,15 @@ async def geocode(address: str, client: httpx.AsyncClient):
             saw_error = True
             continue
         if status == "ok":
-            return (lat, lng, "ok")
-        if status == "error":
+            if _in_region(lat, lng):
+                return (lat, lng, "ok")
+            # implausible hit (e.g. "Office" -> China): don't pin it, try the next
+            # provider in case it resolves closer to home
+            saw_outofarea = True
+        elif status == "error":
             saw_error = True
+    if saw_outofarea:
+        return (None, None, "outofarea")
     return (None, None, "error" if saw_error else "notfound")
 
 

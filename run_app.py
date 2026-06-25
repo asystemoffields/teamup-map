@@ -48,7 +48,23 @@ if getattr(sys, "frozen", False):
         except OSError:
             pass
 
-PORT = int(os.environ.get("PORT", "8000"))
+def _pick_free_port(preferred: int) -> int:
+    """Return `preferred` if it's free, else the next open port. A leftover
+    instance still holding the default port must NOT make a fresh launch silently
+    fail (uvicorn would error out, the window would vanish, and the browser would
+    keep showing the stale copy). Instead we move to the next free port and open
+    the browser there, so the new build always wins."""
+    for p in range(preferred, preferred + 25):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", p))
+                return p
+            except OSError:
+                continue
+    return preferred
+
+
+PORT = _pick_free_port(int(os.environ.get("PORT", "8000")))
 URL = f"http://127.0.0.1:{PORT}"
 
 # Config file names we accept next to the .exe, first match wins. ".env" works

@@ -52,6 +52,9 @@ async def lifespan(app: FastAPI):
     global _http
     _http = httpx.AsyncClient(timeout=30)
     store.conn()  # initialize schema
+    _fenced = store.apply_region_fence()  # demote any out-of-area pins (junk addresses)
+    if _fenced:
+        print(f"[startup] region fence: moved {_fenced} out-of-area address(es) to Unmapped")
     poller_tasks = []
     if config.DEMO:
         demo.load()

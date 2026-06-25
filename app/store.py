@@ -252,6 +252,30 @@ def save_geocode(norm: str, lat, lng, status: str, source: str) -> None:
         c.commit()
 
 
+def apply_region_fence() -> int:
+    """Demote any CACHED geocode + event that sits outside config.GEO_BBOX to
+    'outofarea' (null coords) so junk location text (e.g. 'Office' -> China) can't
+    keep a pin on the far side of the planet. Catches results cached before the
+    fence existed. No-op when no fence is configured; idempotent. Returns the
+    number of cached addresses demoted."""
+    b = config.GEO_BBOX
+    if not b:
+        return 0
+    minlat, minlng, maxlat, maxlng = b
+    outside = "NOT (lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?)"
+    args = (minlat, maxlat, minlng, maxlng)
+    with _lock:
+        c = conn()
+        n = c.execute(
+            f"UPDATE geocode_cache SET lat=NULL,lng=NULL,status='outofarea' "
+            f"WHERE status='ok' AND {outside}", args).rowcount
+        c.execute(
+            f"UPDATE events SET lat=NULL,lng=NULL,geo_status='outofarea' "
+            f"WHERE geo_status='ok' AND {outside}", args)
+        c.commit()
+    return n
+
+
 # ---------------- weather cache ----------------
 
 def get_weather_cache(key: str):
